@@ -1438,16 +1438,40 @@ function App() {
             />
           </div>
 
-          <div style={styles.reportGrid}>
-            <div className="card" style={styles.card}>
-              <h2>{t.byCategory}</h2>
-              {renderReportTable(categoryReportData, t.category)}
-            </div>
+          <div className="report-card" style={styles.card}>
+  <h2>{t.byCategory}</h2>
 
-            <div className="card" style={styles.card}>
-              <h2>{t.byAccount}</h2>
-              {renderReportTable(accountReportData, t.account)}
-            </div>
+  {renderReportTable(categoryReportData, t.category)}
+
+  <div className="mobile-report-list">
+    {categoryReportData.map((item) => (
+      <div key={item.name} className="mobile-report-item">
+        <span className="mobile-report-name">{item.name}</span>
+        <span className="mobile-report-value">
+          ${item.amount.toFixed(2)}
+        </span>
+      </div>
+    ))}
+  </div>
+</div>
+
+            <div className="report-card" style={styles.card}>
+  <h2>{t.byAccount}</h2>
+
+  {renderReportTable(accountReportData, t.account)}
+
+  <div className="mobile-report-list">
+    {accountReportData.map((item) => (
+      <div key={item.name} className="mobile-report-item">
+        <span className="mobile-report-name">{item.name}</span>
+
+        <span className="mobile-report-value">
+          ${item.amount.toFixed(2)}
+        </span>
+      </div>
+    ))}
+  </div>
+</div>
           </div>
         </>
       )}

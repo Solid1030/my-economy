@@ -208,7 +208,8 @@ const defaultCategories = [
 ];
 
 const defaultAccounts = [
-  "Diego",
+  "Cuenta corriente",
+  "Ahorros",
   "RBC",
   "Visa",
   "Mastercard",
@@ -265,7 +266,7 @@ function App() {
     payments: [],
     frequency: "monthly",
     paymentDay: "",
-    account: "Diego",
+    account: "Cuenta corriente",
     category: "Casa",
     expenseType: "recurrent",
   });

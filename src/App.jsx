@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import "./App.css";
 
 const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
 
@@ -218,13 +219,13 @@ const defaultAccounts = [
 ];
 
 const emptyMonth = {
-  income: 5600,
+  income: 0,
   expenses: [],
 };
 
 const APP_NAME = "My Economy";
 const APP_SUBTITLE = "Take control of your money.";
-const APP_VERSION = "v1.2.0";
+const APP_VERSION = "v1.3.0";
 const APP_DEVELOPER = "Altura IT Solutions";
 
 function App() {
@@ -952,8 +953,8 @@ function App() {
 
   function renderReportTable(data, labelColumn) {
     return (
-      <div style={styles.tableWrapper}>
-        <table style={styles.table}>
+      <div className="table-wrapper" style={styles.tableWrapper}>
+        <table className="data-table" style={styles.table}>
           <thead>
             <tr>
               <th style={styles.th}>{labelColumn}</th>
@@ -985,17 +986,17 @@ function App() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.topBar}>
-        <div style={styles.brand}>
+    <div className="page" style={styles.page}>
+      <div className="top-bar" style={styles.topBar}>
+        <div className="brand" style={styles.brand}>
           <img src="/Altura.png" alt="Altura IT Solutions" style={styles.logo} />
           <div>
-            <h1 style={styles.brandTitle}>{APP_NAME}</h1>
-            <p style={styles.brandSubtitle}>{APP_SUBTITLE}</p>
+            <h1 className="brand-title" style={styles.brandTitle}>{APP_NAME}</h1>
+            <p className="brand-subtitle" style={styles.brandSubtitle}>{APP_SUBTITLE}</p>
           </div>
         </div>
 
-        <div style={styles.nav}>
+        <div className="nav" style={styles.nav}>
           <button
             style={{
               ...styles.navButton,
@@ -1044,10 +1045,10 @@ function App() {
         </div>
       </div>
 
-      <main style={styles.appShell}>
+      <main className="app-shell" style={styles.appShell}>
       {page === "dashboard" && (
         <>
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.month}</h2>
 
             <input
@@ -1068,7 +1069,7 @@ function App() {
             </div>
           </div>
 
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.monthlySummary}</h2>
 
             <label>{t.monthlyIncome}</label>
@@ -1080,7 +1081,10 @@ function App() {
               onChange={(e) => updateIncome(e.target.value)}
             />
 
-            <div style={{ ...styles.summaryGrid, marginTop: "20px" }}>
+            <div
+  className="summary-grid"
+  style={{ ...styles.summaryGrid, marginTop: "20px" }}
+>
               <div style={styles.summaryBox}>
                 <strong>{t.totalPlanned}</strong>
                 <p>${totalPlanned.toFixed(2)}</p>
@@ -1098,10 +1102,10 @@ function App() {
             </div>
           </div>
 
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.addExpense}</h2>
 
-            <form onSubmit={addExpense} style={styles.formGrid}>
+            <form onSubmit={addExpense} className="form-grid" style={styles.formGrid}>
               <div>
                 <label>{t.name}</label>
                 <input
@@ -1199,11 +1203,11 @@ function App() {
             </form>
           </div>
 
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.expensesMonth}</h2>
 
-            <div style={styles.tableWrapper}>
-              <table style={styles.table}>
+            <div className="table-wrapper" style={styles.tableWrapper}>
+              <table className="data-table" style={styles.table}>
                 <thead>
                   <tr>
                     <th style={styles.th}>{t.name}</th>
@@ -1229,7 +1233,17 @@ function App() {
                       Number(activeExpense.plannedAmount) - effectiveReal;
 
                     return (
-                      <tr key={index}>
+                      <tr
+  key={index}
+  onClick={() => {
+    if (window.innerWidth <= 768) {
+      openPayments(index);
+    }
+  }}
+  style={{
+    cursor: window.innerWidth <= 768 ? "pointer" : "default",
+  }}
+>
                         <td style={styles.td}>
                           {isEditing ? (
                             <input
@@ -1413,7 +1427,7 @@ function App() {
 
       {page === "reports" && (
         <>
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.month}</h2>
 
             <input
@@ -1425,12 +1439,12 @@ function App() {
           </div>
 
           <div style={styles.reportGrid}>
-            <div style={styles.card}>
+            <div className="card" style={styles.card}>
               <h2>{t.byCategory}</h2>
               {renderReportTable(categoryReportData, t.category)}
             </div>
 
-            <div style={styles.card}>
+            <div className="card" style={styles.card}>
               <h2>{t.byAccount}</h2>
               {renderReportTable(accountReportData, t.account)}
             </div>
@@ -1440,7 +1454,7 @@ function App() {
 
       {page === "settings" && (
         <>
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.categoriesConfig}</h2>
 
             <form onSubmit={addCategory} style={{ display: "flex", gap: "10px" }}>
@@ -1469,7 +1483,7 @@ function App() {
             </div>
           </div>
 
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.accountsConfig}</h2>
 
             <form onSubmit={addAccount} style={{ display: "flex", gap: "10px" }}>
@@ -1496,7 +1510,7 @@ function App() {
             </div>
           </div>
 
-          <div style={styles.card}>
+          <div className="card" style={styles.card}>
             <h2>{t.createdMonths}</h2>
 
             {Object.keys(monthlyData).length === 0 && <p>{t.noMonths}</p>}
@@ -1514,7 +1528,7 @@ function App() {
         </>
       )}
 
-      <footer style={styles.footer}>
+      <footer className="footer" style={styles.footer}>
         <div style={styles.footerBrand}>
           <img src="/altura-logo.png" alt="Altura IT Solutions" style={styles.footerLogo} />
           <div>
@@ -1604,8 +1618,8 @@ function App() {
 
             <h3>{t.paymentHistory}</h3>
 
-            <div style={styles.tableWrapper}>
-              <table style={styles.table}>
+            <div className="table-wrapper" style={styles.tableWrapper}>
+              <table className="data-table" style={styles.table}>
                 <thead>
                   <tr>
                     <th style={styles.th}>{t.paymentDate}</th>

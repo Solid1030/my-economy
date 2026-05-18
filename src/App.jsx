@@ -809,7 +809,7 @@ function App() {
       outline: "none",
     },
     tableInput: {
-      width: "105px",
+      width: "100%",
       padding: "6px",
       borderRadius: "5px",
       border: "1px solid rgba(255,255,255,0.18)",
@@ -1386,7 +1386,7 @@ function App() {
 
                         <td style={styles.td}>
                           <button onClick={() => openPayments(index)}>
-                            {t.managePayments}
+                            Administrar
                           </button>
                         </td>
 
@@ -1438,40 +1438,16 @@ function App() {
             />
           </div>
 
-          <div className="report-card" style={styles.card}>
-  <h2>{t.byCategory}</h2>
+          <div style={styles.reportGrid}>
+            <div className="card" style={styles.card}>
+              <h2>{t.byCategory}</h2>
+              {renderReportTable(categoryReportData, t.category)}
+            </div>
 
-  {renderReportTable(categoryReportData, t.category)}
-
-  <div className="mobile-report-list">
-    {categoryReportData.map((item) => (
-      <div key={item.name} className="mobile-report-item">
-        <span className="mobile-report-name">{item.name}</span>
-        <span className="mobile-report-value">
-          ${item.amount.toFixed(2)}
-        </span>
-      </div>
-    ))}
-  </div>
-</div>
-
-            <div className="report-card" style={styles.card}>
-  <h2>{t.byAccount}</h2>
-
-  {renderReportTable(accountReportData, t.account)}
-
-  <div className="mobile-report-list">
-    {accountReportData.map((item) => (
-      <div key={item.name} className="mobile-report-item">
-        <span className="mobile-report-name">{item.name}</span>
-
-        <span className="mobile-report-value">
-          ${item.amount.toFixed(2)}
-        </span>
-      </div>
-    ))}
-  </div>
-</div>
+            <div className="card" style={styles.card}>
+              <h2>{t.byAccount}</h2>
+              {renderReportTable(accountReportData, t.account)}
+            </div>
           </div>
         </>
       )}

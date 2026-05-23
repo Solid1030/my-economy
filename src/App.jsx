@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import "./App.css";
 
 const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
 
 const APP_NAME = "My Economy";
 const APP_SUBTITLE = "Take control of your money.";
-const APP_VERSION = "v1.4.0";
+const APP_VERSION = "v1.4.2";
 const APP_DEVELOPER = "Altura IT Solutions";
 const INCOME_CATEGORY = "Ingresos";
 
@@ -14,6 +16,7 @@ const translations = {
     dashboard: "Dashboard",
     reports: "Reportes",
     settings: "Configuración",
+    howTo: "HOW TO",
     month: "Mes",
     createAll: "Crear mes copiando todos los gastos",
     createRecurring: "Crear mes copiando solo recurrentes",
@@ -93,11 +96,16 @@ const translations = {
     expense: "Gasto",
     savings: "ahorro",
     overCost: "sobrecosto",
+    exportPdf: "Generar reporte PDF",
+    downloadGuide: "Descargar instructivo PDF",
+    monthlyStatement: "Reporte mensual",
+    userGuide: "Instructivo de uso",
   },
   en: {
     dashboard: "Dashboard",
     reports: "Reports",
     settings: "Settings",
+    howTo: "HOW TO",
     month: "Month",
     createAll: "Create month copying all expenses",
     createRecurring: "Create month copying recurring expenses only",
@@ -177,11 +185,16 @@ const translations = {
     expense: "Expense",
     savings: "saved",
     overCost: "over budget",
+    exportPdf: "Generate PDF report",
+    downloadGuide: "Download user guide PDF",
+    monthlyStatement: "Monthly statement",
+    userGuide: "User guide",
   },
   fr: {
     dashboard: "Tableau de bord",
     reports: "Rapports",
     settings: "Configuration",
+    howTo: "HOW TO",
     month: "Mois",
     createAll: "Créer le mois en copiant toutes les dépenses",
     createRecurring: "Créer le mois avec seulement les dépenses récurrentes",
@@ -261,6 +274,10 @@ const translations = {
     expense: "Dépense",
     savings: "économie",
     overCost: "surcoût",
+    exportPdf: "Générer rapport PDF",
+    downloadGuide: "Télécharger guide PDF",
+    monthlyStatement: "Rapport mensuel",
+    userGuide: "Guide d’utilisation",
   },
 };
 
@@ -865,6 +882,169 @@ function App() {
 
   const upcomingPayments = getUpcomingMovements();
 
+  function generateMonthlyPdf() {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+    const generatedAt = new Date().toLocaleDateString(
+      language === "en" ? "en-US" : language === "fr" ? "fr-CA" : "es-ES"
+    );
+
+    const movementsForPdf = [...salaryTableRows, ...normalizedExpenses]
+      .sort((a, b) => {
+        if (!a.paymentDay && !b.paymentDay) return a.originalIndex - b.originalIndex;
+        if (!a.paymentDay) return 1;
+        if (!b.paymentDay) return -1;
+        return new Date(a.paymentDay + "T00:00:00") - new Date(b.paymentDay + "T00:00:00");
+      })
+      .map((item) => {
+        const incoming = isIncomingItem(item);
+        const realValue = getEffectiveReal(item);
+        return [
+          item.paymentDay || "-",
+          item.name || "-",
+          incoming ? t.income : t.expense,
+          item.category || "-",
+          item.account || "-",
+          `${incoming ? "+" : ""}$${Number(item.plannedAmount || 0).toFixed(2)}`,
+          incoming ? `+$${Number(item.plannedAmount || 0).toFixed(2)}` : realValue === null ? t.pending : `$${Number(realValue).toFixed(2)}`,
+        ];
+      });
+
+    doc.setFillColor(20, 20, 20);
+    doc.rect(0, 0, 216, 32, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.text(APP_NAME, 14, 14);
+    doc.setFontSize(11);
+    doc.text(`${t.monthlyStatement} — ${selectedMonth}`, 14, 22);
+    doc.setTextColor(120, 120, 120);
+    doc.setFontSize(9);
+    doc.text(`${APP_DEVELOPER} · ${generatedAt}`, 14, 28);
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(13);
+    doc.text(t.monthlySummary, 14, 44);
+
+    autoTable(doc, {
+      startY: 50,
+      theme: "grid",
+      head: [[t.monthlyIncome, t.randomIncome, t.totalPlanned, t.totalReal, t.available]],
+      body: [[
+        `$${numericIncome.toFixed(2)}`,
+        `+$${randomIncomeTotal.toFixed(2)}`,
+        `$${totalPlanned.toFixed(2)}`,
+        `$${totalReal.toFixed(2)}`,
+        `$${available.toFixed(2)}`,
+      ]],
+      headStyles: { fillColor: [225, 6, 0], textColor: [255, 255, 255] },
+      styles: { fontSize: 9 },
+    });
+
+    doc.setFontSize(13);
+    doc.text(t.expensesMonth, 14, doc.lastAutoTable.finalY + 14);
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 20,
+      theme: "striped",
+      head: [[t.paymentDate, t.name, t.type, t.category, t.account, t.planned, t.real]],
+      body: movementsForPdf.length ? movementsForPdf : [["-", t.noData, "-", "-", "-", "-", "-"]],
+      headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255] },
+      styles: { fontSize: 8, cellPadding: 2 },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+      didParseCell: (data) => {
+        if (data.section === "body" && String(data.row.raw?.[2]).includes(t.income)) {
+          data.cell.styles.textColor = [31, 122, 31];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
+    });
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      doc.setPage(pageNumber);
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text(`${APP_NAME} ${APP_VERSION} · ${pageNumber}/${pageCount}`, 14, 270);
+    }
+
+    doc.save(`my-economy-statement-${selectedMonth}.pdf`);
+  }
+
+  function generateUserGuidePdf() {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+    let y = 18;
+
+    function title(text) {
+      doc.setFontSize(18);
+      doc.setTextColor(225, 6, 0);
+      doc.text(text, 14, y);
+      y += 10;
+    }
+
+    function section(heading, body) {
+      if (y > 240) {
+        doc.addPage();
+        y = 18;
+      }
+      doc.setFontSize(13);
+      doc.setTextColor(0, 0, 0);
+      doc.text(heading, 14, y);
+      y += 7;
+      doc.setFontSize(10);
+      doc.setTextColor(70, 70, 70);
+      const lines = doc.splitTextToSize(body, 185);
+      doc.text(lines, 14, y);
+      y += lines.length * 5 + 7;
+    }
+
+    doc.setFillColor(20, 20, 20);
+    doc.rect(0, 0, 216, 34, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(21);
+    doc.text(APP_NAME, 14, 15);
+    doc.setFontSize(11);
+    doc.text(t.userGuide, 14, 25);
+    y = 46;
+
+    title(t.userGuide);
+    section(
+      "1. Dashboard",
+      "The dashboard is the main area of the application. It shows the selected month, monthly income, upcoming movements, the form to add new movements, and the full monthly table."
+    );
+    section(
+      "2. Monthly income",
+      "Monthly income is the base salary amount for the selected month. You can define whether it is received monthly, biweekly, or weekly, and select the first income date. Salary entries are displayed in the table as green virtual rows, but they are not duplicated in random income."
+    );
+    section(
+      "3. Random income",
+      "To add extra income, create a movement using the protected category Ingresos. These entries appear in green, increase the available balance, and are not calculated as expenses."
+    );
+    section(
+      "4. Expenses",
+      "Expenses can be recurrent or sporadic. Planned value is the expected amount. Real value appears only when payments are registered through Admin. The difference is informational and appears in the payment window."
+    );
+    section(
+      "5. Partial payments",
+      "Use Admin to add one or more payments to the same expense. This is useful for expenses such as gas, groceries, or any cost paid in multiple parts during the month."
+    );
+    section(
+      "6. Date sorting",
+      "Click the payment date column to sort movements by date. The first click sorts ascending, the second descending, and the third returns to the original entry order."
+    );
+    section(
+      "7. Reports",
+      "Reports summarize expenses by category and by account. Income entries are excluded from expense reports so financial totals remain clean."
+    );
+    section(
+      "8. Data storage",
+      "This beta version stores information in the browser localStorage. Data is local to the browser and device unless future backup, import/export, or cloud synchronization features are added."
+    );
+
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text(`${APP_DEVELOPER} · ${APP_NAME} ${APP_VERSION}`, 14, 270);
+    doc.save("my-economy-user-guide.pdf");
+  }
+
   const styles = {
     page: {
       minHeight: "100vh",
@@ -1054,6 +1234,18 @@ function App() {
         <div className="widget-buttons">
           <button onClick={() => createNewMonth("all")} style={styles.button}>{t.createAll}</button>
           <button onClick={() => createNewMonth("recurrent")} style={styles.button}>{t.createRecurring}</button>
+          <button
+            onClick={generateMonthlyPdf}
+            style={{
+              ...styles.button,
+              backgroundColor: "#e10600",
+              color: "#ffffff",
+              fontWeight: 800,
+              marginTop: "4px",
+            }}
+          >
+            {t.exportPdf}
+          </button>
         </div>
       </div>
     );
@@ -1231,6 +1423,7 @@ function App() {
           <button style={{ ...styles.navButton, ...(page === "dashboard" ? styles.navButtonActive : {}) }} onClick={() => setPage("dashboard")}>{t.dashboard}</button>
           <button style={{ ...styles.navButton, ...(page === "reports" ? styles.navButtonActive : {}) }} onClick={() => setPage("reports")}>{t.reports}</button>
           <button style={{ ...styles.navButton, ...(page === "settings" ? styles.navButtonActive : {}) }} onClick={() => setPage("settings")}>{t.settings}</button>
+          <button style={{ ...styles.navButton, ...(page === "howto" ? styles.navButtonActive : {}) }} onClick={() => setPage("howto")}>{t.howTo}</button>
           <select style={styles.smallSelect} value={language} onChange={(e) => setLanguage(e.target.value)}>
             <option style={{ backgroundColor: "#0b0d0f", color: "#ffffff" }} value="es">Español</option>
             <option style={{ backgroundColor: "#0b0d0f", color: "#ffffff" }} value="en">English</option>
@@ -1287,6 +1480,123 @@ function App() {
               </div>
             </div>
           </>
+        )}
+
+        {page === "howto" && (
+          <div className="card" style={styles.card}>
+            <h2>{t.howTo} — {APP_NAME}</h2>
+
+            {language === "es" && (
+              <div style={{ lineHeight: 1.7 }}>
+                <h3>1. Concepto general</h3>
+                <p><strong>My Economy</strong> te ayuda a planificar un mes financiero completo. La app separa lo que esperas pagar de lo que realmente pagas, para que puedas ver tu situación mensual con más claridad.</p>
+
+                <h3>2. Ingreso mensual</h3>
+                <p>El ingreso mensual representa tu salario total estimado para el mes seleccionado. Puedes indicar si ese salario se recibe mensual, bisemanal o semanalmente. La app divide visualmente ese salario en entradas verdes dentro de la tabla, pero no lo suma dos veces.</p>
+
+                <h3>3. Fecha del primer ingreso</h3>
+                <p>Esta fecha le dice a la app cuándo empieza tu ciclo de pagos. Si eliges semanal o bisemanal, la app calcula las siguientes entradas salariales dentro del mes.</p>
+
+                <h3>4. Ingresos aleatorios</h3>
+                <p>Para registrar dinero extra, crea un movimiento usando la categoría protegida <strong>Ingresos</strong>. Estos ingresos aparecen en verde, aumentan el disponible y no se calculan como gastos.</p>
+
+                <h3>5. Gastos previstos</h3>
+                <p>El valor previsto es lo que esperas pagar antes de realizar el pago. Este valor se usa para calcular el disponible del mes.</p>
+
+                <h3>6. Pagos reales</h3>
+                <p>El valor real se calcula desde <strong>Admin</strong>, donde puedes registrar uno o varios pagos. Esto es útil para gastos que se pagan por partes, como gasolina, mercado o compras variables.</p>
+
+                <h3>7. Disponible</h3>
+                <p>El disponible se calcula así: <strong>Ingreso mensual + ingresos aleatorios - gastos previstos</strong>. Los pagos reales no cambian directamente el disponible; sirven para comparar lo planeado contra lo pagado.</p>
+
+                <h3>8. Colores</h3>
+                <p>Las líneas verdes representan entradas de dinero. En la columna Real, verde significa que pagaste menos de lo previsto, amarillo que pagaste igual, y rojo que pagaste más.</p>
+
+                <h3>9. Orden por fecha</h3>
+                <p>Puedes hacer clic en la columna <strong>Fecha de pago</strong>. Un clic ordena de menor a mayor fecha, otro clic de mayor a menor, y un tercer clic vuelve al orden original.</p>
+
+                <h3>10. Crear nuevos meses</h3>
+                <p>Puedes crear un mes copiando todos los movimientos o solo los recurrentes. Las fechas se ajustan automáticamente al nuevo mes.</p>
+
+                <h3>11. Reportes PDF</h3>
+                <p>Desde el widget del mes en el Dashboard puedes generar un reporte mensual en PDF con resumen financiero y lista de movimientos.</p>
+              </div>
+            )}
+
+            {language === "en" && (
+              <div style={{ lineHeight: 1.7 }}>
+                <h3>1. General concept</h3>
+                <p><strong>My Economy</strong> helps you plan a full financial month. The app separates planned values from real payments so you can understand your monthly situation more clearly.</p>
+
+                <h3>2. Monthly income</h3>
+                <p>Monthly income represents your estimated salary for the selected month. You can define whether it is received monthly, biweekly, or weekly. The app visually splits that salary into green entries in the table without counting it twice.</p>
+
+                <h3>3. First income date</h3>
+                <p>This date tells the app when your payment cycle starts. If you select weekly or biweekly, the app calculates the following salary entries inside the selected month.</p>
+
+                <h3>4. Random income</h3>
+                <p>To register extra income, create a movement using the protected <strong>Ingresos</strong> category. These entries appear in green, increase available balance, and are not counted as expenses.</p>
+
+                <h3>5. Planned expenses</h3>
+                <p>The planned value is what you expect to pay before making the payment. This value is used to calculate the available monthly balance.</p>
+
+                <h3>6. Real payments</h3>
+                <p>The real value is calculated from <strong>Admin</strong>, where you can register one or multiple payments. This is useful for expenses paid in parts, such as gas, groceries, or variable purchases.</p>
+
+                <h3>7. Available balance</h3>
+                <p>Available balance is calculated as: <strong>Monthly income + random income - planned expenses</strong>. Real payments do not directly change available balance; they are used to compare planned vs. paid.</p>
+
+                <h3>8. Colors</h3>
+                <p>Green rows represent income. In the Real column, green means you paid less than planned, yellow means equal, and red means over budget.</p>
+
+                <h3>9. Date sorting</h3>
+                <p>You can click the <strong>Payment date</strong> column. First click sorts ascending, second click descending, and third click returns to the original order.</p>
+
+                <h3>10. Creating new months</h3>
+                <p>You can create a month by copying all movements or recurring movements only. Payment dates are automatically adjusted to the new month.</p>
+
+                <h3>11. PDF reports</h3>
+                <p>From the month widget in the Dashboard, you can generate a monthly PDF statement with financial summary and movement list.</p>
+              </div>
+            )}
+
+            {language === "fr" && (
+              <div style={{ lineHeight: 1.7 }}>
+                <h3>1. Concept général</h3>
+                <p><strong>My Economy</strong> aide à planifier un mois financier complet. L’application sépare les valeurs prévues des paiements réels afin de mieux comprendre la situation mensuelle.</p>
+
+                <h3>2. Revenu mensuel</h3>
+                <p>Le revenu mensuel représente le salaire estimé pour le mois sélectionné. Il peut être reçu mensuellement, aux deux semaines ou chaque semaine. L’application affiche ces entrées en vert dans le tableau sans les compter deux fois.</p>
+
+                <h3>3. Date du premier revenu</h3>
+                <p>Cette date indique le début du cycle de paie. Si la fréquence est hebdomadaire ou aux deux semaines, l’application calcule les prochaines entrées salariales du mois.</p>
+
+                <h3>4. Revenus aléatoires</h3>
+                <p>Pour ajouter un revenu extra, crée un mouvement avec la catégorie protégée <strong>Ingresos</strong>. Ces entrées apparaissent en vert, augmentent le disponible et ne sont pas calculées comme dépenses.</p>
+
+                <h3>5. Dépenses prévues</h3>
+                <p>La valeur prévue est le montant attendu avant le paiement. Cette valeur est utilisée pour calculer le disponible mensuel.</p>
+
+                <h3>6. Paiements réels</h3>
+                <p>La valeur réelle est calculée depuis <strong>Admin</strong>, où il est possible d’ajouter un ou plusieurs paiements. C’est utile pour les dépenses payées en plusieurs parties.</p>
+
+                <h3>7. Disponible</h3>
+                <p>Le disponible est calculé ainsi : <strong>revenu mensuel + revenus aléatoires - dépenses prévues</strong>. Les paiements réels servent à comparer le prévu et le payé.</p>
+
+                <h3>8. Couleurs</h3>
+                <p>Les lignes vertes représentent les entrées d’argent. Dans la colonne Réel, vert signifie payé moins que prévu, jaune signifie égal, et rouge signifie dépassement.</p>
+
+                <h3>9. Tri par date</h3>
+                <p>Il est possible de cliquer sur la colonne <strong>Date de paiement</strong>. Le premier clic trie en ordre croissant, le deuxième en ordre décroissant, et le troisième revient à l’ordre original.</p>
+
+                <h3>10. Création de nouveaux mois</h3>
+                <p>Tu peux créer un mois en copiant tous les mouvements ou seulement les récurrents. Les dates sont automatiquement ajustées au nouveau mois.</p>
+
+                <h3>11. Rapports PDF</h3>
+                <p>Depuis le widget du mois dans le Dashboard, tu peux générer un rapport mensuel PDF avec résumé financier et liste des mouvements.</p>
+              </div>
+            )}
+          </div>
         )}
 
         {page === "settings" && (

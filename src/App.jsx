@@ -361,7 +361,6 @@ const emptyMonth = {
   expenses: [],
 };
 
-// Función auxiliar para ordenar fechas (items sin fecha van al final)
 function getSortableDate(dateString) {
   if (!dateString || dateString === "") return NO_DATE_SORT_VALUE;
   return dateString;
@@ -374,16 +373,13 @@ function App() {
   const [page, setPage] = useState("dashboard");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
   
-  // Estado de ordenamiento - default: fecha ascendente
   const [sortConfig, setSortConfig] = useState(() => {
     const saved = localStorage.getItem("sortConfig");
-    if (saved) {
-      return JSON.parse(saved);
-    }
+    if (saved) return JSON.parse(saved);
     return { key: "paymentDate", direction: "asc" };
   });
 
-  // ============ NUEVO: Estado para la nube (oculto para usuarios normales) ============
+  // NUBE: Estado para la nube
   const [cloudFilePath, setCloudFilePath] = useState(() => {
     return localStorage.getItem("cloudFilePath") || null;
   });
@@ -440,12 +436,10 @@ function App() {
 
   const modalRef = useRef(null);
 
-  // Guardar configuración de orden en localStorage
   useEffect(() => {
     localStorage.setItem("sortConfig", JSON.stringify(sortConfig));
   }, [sortConfig]);
 
-  // Persistencia normal a localStorage
   useEffect(() => {
     localStorage.setItem("monthlyData", JSON.stringify(monthlyData));
     localStorage.setItem("categories", JSON.stringify(categories));
@@ -454,25 +448,15 @@ function App() {
 
   useEffect(() => localStorage.setItem("language", language), [language]);
 
-  // ============ NUEVO: Auto-guardado a la nube cuando hay cambios ============
+  // Auto-guardado a la nube
   useEffect(() => {
     if (isCloudMode && cloudFileHandle) {
       const saveTimeout = setTimeout(() => {
         saveToCloudFile();
-      }, 1000); // Espera 1 segundo después del último cambio
+      }, 1000);
       return () => clearTimeout(saveTimeout);
     }
   }, [monthlyData, categories, accounts, isCloudMode, cloudFileHandle]);
-
-  // ============ NUEVO: Cargar archivo de nube automáticamente al inicio ============
-  useEffect(() => {
-    if (cloudFilePath) {
-      // Intentar cargar el archivo guardado (solo funciona si el usuario aprueba el permiso)
-      // Nota: Por seguridad del navegador, no podemos cargar automáticamente sin interacción del usuario.
-      // En su lugar, mostramos un recordatorio sutil.
-      console.log("Cloud file path remembered:", cloudFilePath);
-    }
-  }, []);
 
   useEffect(() => {
     const data = monthlyData[selectedMonth] || emptyMonth;
@@ -496,8 +480,7 @@ function App() {
     return () => document.removeEventListener("keydown", handleEscKey);
   }, [paymentExpenseIndex, showTransferDialog]);
 
-  // ============ NUEVO: Funciones de la nube ============
-  
+  // NUBE: Funciones
   async function selectCloudFile() {
     try {
       let fileHandle = null;
@@ -510,7 +493,6 @@ function App() {
           }],
         });
       } else {
-        // Fallback para navegadores que no soportan File System Access API
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';
@@ -520,7 +502,6 @@ function App() {
         });
         if (!fileSelected) return;
         
-        // Leer el archivo
         const text = await fileSelected.text();
         const data = JSON.parse(text);
         
@@ -531,7 +512,7 @@ function App() {
           setCloudFilePath(fileSelected.name);
           setIsCloudMode(true);
           localStorage.setItem("cloudFilePath", fileSelected.name);
-          alert("Archivo conectado. Los cambios se guardarán automáticamente. (Modo demo - usa 'Guardar como' para guardar cambios)");
+          alert("☁️ Archivo conectado. Los cambios se guardarán automáticamente.");
         } else {
           alert("El archivo no tiene el formato correcto.");
         }
@@ -564,7 +545,6 @@ function App() {
 
   async function saveToCloudFile() {
     if (!cloudFileHandle && isCloudMode) {
-      // Si no tenemos handle pero estamos en modo nube, intentar reconectar
       console.log("No file handle available for cloud save");
       return;
     }
@@ -588,7 +568,6 @@ function App() {
       console.log("✅ Auto-saved to cloud file:", cloudFilePath);
     } catch (err) {
       console.error("Error saving to cloud file:", err);
-      // Si hay error, desactivar modo nube temporalmente
       setIsCloudMode(false);
       localStorage.removeItem("cloudFilePath");
       alert("⚠️ Error al guardar en la nube. Se ha desactivado el modo nube. Vuelve a conectar el archivo.");
@@ -603,42 +582,6 @@ function App() {
     alert("☁️ Modo nube desactivado. Ahora trabajas solo en localStorage.");
   }
 
-  // ============ FUNCIONES DE ORDENAMIENTO ============
-  
-  function requestSort(key) {
-    let direction = "asc";
-    if (sortConfig.key === key && sortConfig.direction === "asc") {
-      direction = "desc";
-    } else if (sortConfig.key === key && sortConfig.direction === "desc") {
-      setSortConfig({ key: "paymentDate", direction: "asc" });
-      return;
-    }
-    setSortConfig({ key, direction });
-  }
-
-  function resetSort() {
-    setSortConfig({ key: "paymentDate", direction: "asc" });
-  }
-
-  function getSortIcon(columnKey) {
-    if (sortConfig.key !== columnKey) return "↕️";
-    if (sortConfig.direction === "asc") return "▲";
-    if (sortConfig.direction === "desc") return "▼";
-    return "↕️";
-  }
-
-  function getSortTitle(columnName) {
-    if (sortConfig.key === "paymentDate" && sortConfig.direction === "asc") {
-      return `${columnName} - ${t.sortAsc} (${t.sortByDateDefault})`;
-    }
-    if (sortConfig.key === "paymentDate" && sortConfig.direction === "desc") {
-      return `${columnName} - ${t.sortDesc}`;
-    }
-    return `${columnName} - ${sortConfig.direction === "asc" ? t.sortAsc : t.sortDesc}`;
-  }
-
-  // ============ FUNCIONES DE EXPORTACIÓN/IMPORTACIÓN ============
-  
   function exportData() {
     const exportObj = {
       version: APP_VERSION,
@@ -682,8 +625,6 @@ function App() {
     event.target.value = "";
   }
 
-  // ============ FUNCIONES AUXILIARES ============
-
   function getAvailableColor(amount) {
     if (amount > 0) return { color: "#4caf50", backgroundColor: "rgba(76, 175, 80, 0.15)" };
     if (amount < 0) return { color: "#f44336", backgroundColor: "rgba(244, 67, 54, 0.15)" };
@@ -713,6 +654,38 @@ function App() {
   function getExpenseTypeLabel(value) {
     const labels = { recurrent: t.recurrent, sporadic: t.sporadic };
     return labels[normalizeExpenseType(value)] || value;
+  }
+
+  function requestSort(key) {
+    let direction = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    } else if (sortConfig.key === key && sortConfig.direction === "desc") {
+      setSortConfig({ key: "paymentDate", direction: "asc" });
+      return;
+    }
+    setSortConfig({ key, direction });
+  }
+
+  function resetSort() {
+    setSortConfig({ key: "paymentDate", direction: "asc" });
+  }
+
+  function getSortIcon(columnKey) {
+    if (sortConfig.key !== columnKey) return "↕️";
+    if (sortConfig.direction === "asc") return "▲";
+    if (sortConfig.direction === "desc") return "▼";
+    return "↕️";
+  }
+
+  function getSortTitle(columnName) {
+    if (sortConfig.key === "paymentDate" && sortConfig.direction === "asc") {
+      return `${columnName} - ${t.sortAsc} (${t.sortByDateDefault})`;
+    }
+    if (sortConfig.key === "paymentDate" && sortConfig.direction === "desc") {
+      return `${columnName} - ${t.sortDesc}`;
+    }
+    return `${columnName} - ${sortConfig.direction === "asc" ? t.sortAsc : t.sortDesc}`;
   }
 
   function isIncomeItem(expense) { return expense?.category === INCOME_CATEGORY; }
@@ -1309,7 +1282,6 @@ function App() {
     doc.save("my-economy-user-guide.pdf");
   }
 
-  // Estilos
   const styles = {
     page: { minHeight: "100vh", padding: "0", fontFamily: "Inter, Arial, sans-serif", background: "radial-gradient(circle at top left, #182023 0%, #090b0d 38%, #050505 100%)", color: "#f5f5f5" },
     appShell: { maxWidth: "1500px", margin: "0 auto", padding: "0 24px 24px" },
@@ -1321,7 +1293,6 @@ function App() {
     nav: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" },
     navButton: { padding: "14px 18px", borderRadius: "0", border: "none", borderBottom: "3px solid transparent", cursor: "pointer", backgroundColor: "transparent", color: "#b8b8b8", fontSize: "15px" },
     navButtonActive: { color: "#ffffff", backgroundColor: "rgba(255,255,255,0.05)", borderBottom: "3px solid #e10600" },
-    smallSelect: { padding: "12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.2)", backgroundColor: "#1a1a1a", color: "#ffffff", outline: "none", cursor: "pointer" },
     cloudButton: { 
       background: "none", 
       border: "none", 
@@ -1340,6 +1311,7 @@ function App() {
     },
     cloudConnected: { color: "#4caf50" },
     cloudDisconnected: { color: "#b8b8b8" },
+    smallSelect: { padding: "12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.2)", backgroundColor: "#1a1a1a", color: "#ffffff", outline: "none", cursor: "pointer" },
     card: { border: "1px solid rgba(255,255,255,0.13)", borderRadius: "12px", padding: "20px", marginBottom: "20px", background: "linear-gradient(145deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025))", boxShadow: "0 18px 40px rgba(0,0,0,0.25)" },
     input: { width: "100%", padding: "11px 12px", borderRadius: "7px", border: "1px solid rgba(255,255,255,0.18)", marginTop: "6px", boxSizing: "border-box", backgroundColor: "#1a1a1a", color: "#ffffff", outline: "none" },
     tableInput: { width: "100%", padding: "6px", borderRadius: "5px", border: "1px solid rgba(255,255,255,0.18)", fontSize: "12px", backgroundColor: "#1a1a1a", color: "#ffffff" },
@@ -1418,7 +1390,7 @@ function App() {
           <button style={{ ...styles.navButton, ...(page === "settings" ? styles.navButtonActive : {}) }} onClick={() => setPage("settings")}>{t.settings}</button>
           <button style={{ ...styles.navButton, ...(page === "howto" ? styles.navButtonActive : {}) }} onClick={() => setPage("howto")}>{t.howTo}</button>
           
-          {/* ÍCONO DE NUBE (OCULTO EN VERSIÓN PÚBLICA - SOLO PARA TI) */}
+          {/* ÍCONO DE NUBE */}
           <button
             style={{
               ...styles.cloudButton,
@@ -1444,6 +1416,7 @@ function App() {
         {page === "dashboard" && (
           <>
             <div style={styles.dashboardTopWidgets}>
+              {/* Widget Mes */}
               <div style={styles.card}>
                 <h2>{t.month}</h2>
                 <input style={styles.input} type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
@@ -1459,6 +1432,7 @@ function App() {
                 </div>
               </div>
 
+              {/* Widget Resumen */}
               <div style={styles.card}>
                 <h2>{t.monthlySummary}</h2>
                 <label>{t.monthlyIncome}</label>
@@ -1495,6 +1469,7 @@ function App() {
                 </div>
               </div>
 
+              {/* Widget Próximos Pagos */}
               <div style={styles.card}>
                 <h2>{t.todayAndUpcoming}</h2>
                 <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginBottom: "15px" }}>
@@ -1520,6 +1495,57 @@ function App() {
               </div>
             </div>
 
+            {/* FORMULARIO PARA AGREGAR MOVIMIENTO */}
+            <div style={styles.card}>
+              <h2>{t.addExpense}</h2>
+              <form onSubmit={addExpense} style={styles.formGrid}>
+                <div>
+                  <label>{t.name}</label>
+                  <input style={styles.input} value={newExpense.name} onChange={(e) => setNewExpense({ ...newExpense, name: e.target.value })} />
+                </div>
+                <div>
+                  <label>{t.totalPlanned}</label>
+                  <input style={styles.input} type="number" value={newExpense.plannedAmount} onChange={(e) => setNewExpense({ ...newExpense, plannedAmount: e.target.value })} />
+                </div>
+                <div>
+                  <label>{t.category}</label>
+                  <select style={styles.input} value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}>
+                    {categories.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label>{t.expenseType}</label>
+                  <select style={styles.input} value={newExpense.expenseType} disabled={newExpense.category === INCOME_CATEGORY} onChange={(e) => setNewExpense({ ...newExpense, expenseType: e.target.value })}>
+                    <option value="recurrent">{t.recurrent}</option>
+                    <option value="sporadic">{t.sporadic}</option>
+                  </select>
+                </div>
+                <div>
+                  <label>{t.frequency}</label>
+                  <select style={styles.input} value={newExpense.frequency} onChange={(e) => setNewExpense({ ...newExpense, frequency: e.target.value })}>
+                    <option value="monthly">{t.monthly}</option>
+                    <option value="weekly">{t.weekly}</option>
+                    <option value="biweekly">{t.biweekly}</option>
+                    <option value="once">{t.once}</option>
+                  </select>
+                </div>
+                <div>
+                  <label>{t.paymentDate}</label>
+                  <input style={styles.input} type="date" value={newExpense.paymentDay} onChange={(e) => setNewExpense({ ...newExpense, paymentDay: e.target.value })} />
+                </div>
+                <div>
+                  <label>{t.account}</label>
+                  <select style={styles.input} value={newExpense.account} onChange={(e) => setNewExpense({ ...newExpense, account: e.target.value })}>
+                    {accounts.map(a => <option key={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", alignItems: "end" }}>
+                  <button type="submit" style={styles.button}>{t.addExpense}</button>
+                </div>
+              </form>
+            </div>
+
+            {/* Tabla de Gastos */}
             <div style={styles.card}>
               <div style={styles.sortBar}>
                 <button onClick={resetSort} style={styles.buttonSecondary}>🔄 {t.resetSort}</button>
@@ -1527,7 +1553,7 @@ function App() {
                   {sortConfig.key === "paymentDate" && sortConfig.direction === "asc" 
                     ? `📅 ${t.sortByDateDefault}` 
                     : sortConfig.key 
-                      ? `📊 ${t.sortBy}: ${sortConfig.key} (${sortConfig.direction === "asc" ? "↑" : "↓"})` 
+                      ? `📊 Orden: ${sortConfig.key} (${sortConfig.direction === "asc" ? "↑" : "↓"})` 
                       : ""}
                 </span>
               </div>
@@ -1653,14 +1679,18 @@ function App() {
               </div>
               <div style={styles.howToCard}>
                 <div style={styles.howToTitle}>📊 7. Ordenar Columnas</div>
-                <p>Haz clic en cualquier encabezado de columna para ordenar la tabla. Cada columna tiene dos estados: ascendente → descendente → vuelve a fecha ascendente (default). Los elementos sin fecha siempre aparecen al final. Tu preferencia de orden se guarda automáticamente y se mantiene al recargar la página. Usa el botón "Resetear orden" para volver al orden por fecha ascendente.</p>
+                <p>Haz clic en cualquier encabezado de columna para ordenar la tabla. Cada columna tiene dos estados: ascendente → descendente → vuelve a fecha ascendente (default). Los elementos sin fecha siempre aparecen al final. Tu preferencia de orden se guarda automáticamente.</p>
               </div>
               <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>❌ 8. Cerrar Popups</div>
+                <div style={styles.howToTitle}>☁️ 8. Modo Nube (Beta)</div>
+                <p>Haz clic en el ícono de nube ☁️ en la esquina superior derecha para conectar un archivo JSON. Una vez conectado, todos los cambios se guardan automáticamente en ese archivo. El ícono se pondrá verde ☁️✅ cuando esté activo. Haz clic nuevamente para desconectar.</p>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>❌ 9. Cerrar Popups</div>
                 <p>Clic en "Cerrar", clic fuera del popup, o tecla ESC.</p>
               </div>
               <div style={styles.howToNote}>
-                <strong>💡 Consejo:</strong> Disponible verde = buen presupuesto. Disponible rojo = estás gastando más de lo que ingresas. El orden de la tabla se guarda automáticamente.
+                <strong>💡 Consejo:</strong> Disponible verde = buen presupuesto. Disponible rojo = estás gastando más de lo que ingresas.
               </div>
             </div>
           </div>

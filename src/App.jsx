@@ -7,9 +7,12 @@ const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
 
 const APP_NAME = "My Economy";
 const APP_SUBTITLE = "Take control of your money.";
-const APP_VERSION = "v1.6.0";
+const APP_VERSION = "v1.8.0";
 const APP_DEVELOPER = "Altura IT Solutions";
 const INCOME_CATEGORY = "Ingresos";
+
+// Fecha ficticia para items sin fecha (internamente para ordenar, nunca se muestra)
+const NO_DATE_SORT_VALUE = "9999-12-31";
 
 const translations = {
   es: {
@@ -44,9 +47,8 @@ const translations = {
     twiceMonthly: "Dos veces al mes",
     once: "Una vez",
     paymentDate: "Fecha de pago",
-    sortOriginal: "Orden original",
-    sortAsc: "Ordenar por fecha ascendente",
-    sortDesc: "Ordenar por fecha descendente",
+    sortAsc: "Ascendente",
+    sortDesc: "Descendente",
     account: "Cuenta",
     planned: "Previsto",
     real: "Real",
@@ -114,6 +116,8 @@ const translations = {
     previousAvailable: "Disponible del mes anterior",
     transferredAmount: "Monto transferido",
     carriedOverIncome: "Ingreso arrastrado",
+    resetSort: "Resetear orden (fecha ascendente)",
+    sortByDateDefault: "Orden por fecha ascendente",
   },
   en: {
     dashboard: "Dashboard",
@@ -147,9 +151,8 @@ const translations = {
     twiceMonthly: "Twice a month",
     once: "One time",
     paymentDate: "Payment date",
-    sortOriginal: "Original order",
-    sortAsc: "Sort by date ascending",
-    sortDesc: "Sort by date descending",
+    sortAsc: "Ascending",
+    sortDesc: "Descending",
     account: "Account",
     planned: "Planned",
     real: "Real",
@@ -217,6 +220,8 @@ const translations = {
     previousAvailable: "Previous month available",
     transferredAmount: "Transferred amount",
     carriedOverIncome: "Carried over income",
+    resetSort: "Reset sort (date ascending)",
+    sortByDateDefault: "Sort by date ascending",
   },
   fr: {
     dashboard: "Tableau de bord",
@@ -250,9 +255,8 @@ const translations = {
     twiceMonthly: "Deux fois par mois",
     once: "Une fois",
     paymentDate: "Date de paiement",
-    sortOriginal: "Ordre original",
-    sortAsc: "Trier par date croissante",
-    sortDesc: "Trier par date décroissante",
+    sortAsc: "Croissant",
+    sortDesc: "Décroissant",
     account: "Compte",
     planned: "Prévu",
     real: "Réel",
@@ -320,6 +324,8 @@ const translations = {
     previousAvailable: "Disponible précédent",
     transferredAmount: "Montant transféré",
     carriedOverIncome: "Revenu reporté",
+    resetSort: "Réinitialiser (date croissante)",
+    sortByDateDefault: "Tri par date croissante",
   },
 };
 
@@ -355,13 +361,28 @@ const emptyMonth = {
   expenses: [],
 };
 
+// Función auxiliar para ordenar fechas (items sin fecha van al final)
+function getSortableDate(dateString) {
+  if (!dateString || dateString === "") return NO_DATE_SORT_VALUE;
+  return dateString;
+}
+
 function App() {
   const [language, setLanguage] = useState(() => localStorage.getItem("language") || "es");
   const t = translations[language];
 
   const [page, setPage] = useState("dashboard");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth());
-  const [sortByDate, setSortByDate] = useState(null);
+  
+  // Estado de ordenamiento - default: fecha ascendente
+  const [sortConfig, setSortConfig] = useState(() => {
+    const saved = localStorage.getItem("sortConfig");
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    // Por defecto: ordenar por fecha ascendente
+    return { key: "paymentDate", direction: "asc" };
+  });
 
   const [categories, setCategories] = useState(() => {
     const saved = localStorage.getItem("categories");
@@ -405,12 +426,16 @@ function App() {
   const [paymentExpenseIndex, setPaymentExpenseIndex] = useState(null);
   const [newPayment, setNewPayment] = useState({ date: "", amount: "", note: "" });
   
-  // Estado para la transferencia del disponible
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [pendingCopyMode, setPendingCopyMode] = useState(null);
   const [pendingTargetMonth, setPendingTargetMonth] = useState(null);
 
   const modalRef = useRef(null);
+
+  // Guardar configuración de orden en localStorage
+  useEffect(() => {
+    localStorage.setItem("sortConfig", JSON.stringify(sortConfig));
+  }, [sortConfig]);
 
   // Persistencia
   useEffect(() => localStorage.setItem("language", language), [language]);
@@ -439,6 +464,41 @@ function App() {
     document.addEventListener("keydown", handleEscKey);
     return () => document.removeEventListener("keydown", handleEscKey);
   }, [paymentExpenseIndex, showTransferDialog]);
+
+  // ============ FUNCIONES DE ORDENAMIENTO ============
+  
+  function requestSort(key) {
+    let direction = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    } else if (sortConfig.key === key && sortConfig.direction === "desc") {
+      // Tercer clic: volver a fecha ascendente (default)
+      setSortConfig({ key: "paymentDate", direction: "asc" });
+      return;
+    }
+    setSortConfig({ key, direction });
+  }
+
+  function resetSort() {
+    setSortConfig({ key: "paymentDate", direction: "asc" });
+  }
+
+  function getSortIcon(columnKey) {
+    if (sortConfig.key !== columnKey) return "↕️";
+    if (sortConfig.direction === "asc") return "▲";
+    if (sortConfig.direction === "desc") return "▼";
+    return "↕️";
+  }
+
+  function getSortTitle(columnName) {
+    if (sortConfig.key === "paymentDate" && sortConfig.direction === "asc") {
+      return `${columnName} - ${t.sortAsc} (${t.sortByDateDefault})`;
+    }
+    if (sortConfig.key === "paymentDate" && sortConfig.direction === "desc") {
+      return `${columnName} - ${t.sortDesc}`;
+    }
+    return `${columnName} - ${sortConfig.direction === "asc" ? t.sortAsc : t.sortDesc}`;
+  }
 
   // ============ FUNCIONES DE EXPORTACIÓN/IMPORTACIÓN ============
   
@@ -516,22 +576,6 @@ function App() {
   function getExpenseTypeLabel(value) {
     const labels = { recurrent: t.recurrent, sporadic: t.sporadic };
     return labels[normalizeExpenseType(value)] || value;
-  }
-
-  function toggleDateSort() {
-    setSortByDate((prev) => prev === null ? "asc" : prev === "asc" ? "desc" : null);
-  }
-
-  function getDateSortIcon() {
-    if (sortByDate === "asc") return "▲";
-    if (sortByDate === "desc") return "▼";
-    return "↕";
-  }
-
-  function getDateSortTitle() {
-    if (sortByDate === null) return t.sortAsc;
-    if (sortByDate === "asc") return t.sortDesc;
-    return t.sortOriginal;
   }
 
   function isIncomeItem(expense) { return expense?.category === INCOME_CATEGORY; }
@@ -737,7 +781,6 @@ function App() {
     return `${targetYearString}-${targetMonthString}-${String(Math.min(originalDay, lastDay)).padStart(2, "0")}`;
   }
 
-  // Función mejorada para crear nuevo mes con transferencia de disponible
   function executeCreateNewMonth(copyMode, transferOption) {
     if (monthlyData[selectedMonth]) {
       alert(t.monthExists);
@@ -767,7 +810,6 @@ function App() {
 
     const previousData = monthlyData[previousMonth];
     
-    // Calcular disponible del mes anterior si existe
     let previousMonthAvailable = 0;
     if (monthlyData[previousMonth]) {
       const prevExpenses = (monthlyData[previousMonth].expenses || []).filter(e => !isIncomeItem(e));
@@ -777,13 +819,10 @@ function App() {
       previousMonthAvailable = prevIncome + prevRandomIncome - prevTotalPlanned;
     }
 
-    // Aplicar transferencia según opción
     let newIncome = previousData ? previousData.income : "";
-    let newRandomIncomeItems = [];
     
     if (transferOption !== "none" && previousMonthAvailable > 0) {
       if (transferOption === "income") {
-        // Transferir como ingreso extra (crear un movimiento en la categoría Ingresos)
         const carriedOverExpense = {
           name: t.carriedOverIncome,
           plannedAmount: previousMonthAvailable,
@@ -797,7 +836,6 @@ function App() {
         };
         expensesToCopy.push(carriedOverExpense);
       } else if (transferOption === "available") {
-        // Agregar al disponible aumentando el ingreso mensual
         const currentIncome = Number(previousData ? previousData.income : 0);
         newIncome = (currentIncome + previousMonthAvailable).toString();
       }
@@ -817,7 +855,6 @@ function App() {
       return;
     }
 
-    // Calcular disponible del mes anterior
     const [year, month] = selectedMonth.split("-").map(Number);
     const previousDate = new Date(year, month - 2, 1);
     const previousMonth = previousDate.toISOString().slice(0, 7);
@@ -831,13 +868,11 @@ function App() {
       previousMonthAvailable = prevIncome + prevRandomIncome - prevTotalPlanned;
     }
 
-    // Si hay disponible positivo, mostrar diálogo de transferencia
     if (previousMonthAvailable > 0) {
       setPendingCopyMode(copyMode);
       setPendingTargetMonth(selectedMonth);
       setShowTransferDialog(true);
     } else {
-      // Si no hay disponible o es negativo, crear directamente
       executeCreateNewMonth(copyMode, "none");
     }
   }
@@ -958,15 +993,83 @@ function App() {
   }));
 
   const expenseRowsForTable = normalizedExpenses.flatMap(e => getBiweeklyExpenseRows(e));
-  const displayedExpenses = [...expenseRowsForTable, ...salaryTableRows].sort((a, b) => {
-    if (!sortByDate) return a.originalIndex - b.originalIndex;
-    if (!a.paymentDay && !b.paymentDay) return a.originalIndex - b.originalIndex;
-    if (!a.paymentDay) return 1;
-    if (!b.paymentDay) return -1;
-    const diff = new Date(a.paymentDay + "T00:00:00") - new Date(b.paymentDay + "T00:00:00");
-    if (diff === 0) return a.originalIndex - b.originalIndex;
-    return sortByDate === "asc" ? diff : -diff;
-  });
+  
+  // Función de ordenamiento mejorada
+  const getSortedExpenses = () => {
+    const allRows = [...expenseRowsForTable, ...salaryTableRows];
+    
+    const sortKey = sortConfig.key;
+    const sortDirection = sortConfig.direction;
+    
+    if (!sortKey || !sortDirection) {
+      return allRows.sort((a, b) => {
+        const dateA = getSortableDate(a.paymentDay);
+        const dateB = getSortableDate(b.paymentDay);
+        if (dateA < dateB) return -1;
+        if (dateA > dateB) return 1;
+        return a.originalIndex - b.originalIndex;
+      });
+    }
+    
+    return allRows.sort((a, b) => {
+      let aVal, bVal;
+      
+      switch(sortKey) {
+        case "name":
+          aVal = a.name?.toLowerCase() || "";
+          bVal = b.name?.toLowerCase() || "";
+          break;
+        case "category":
+          aVal = a.category?.toLowerCase() || "";
+          bVal = b.category?.toLowerCase() || "";
+          break;
+        case "type":
+          aVal = isIncomeItem(a) ? "income" : (a.expenseType || "");
+          bVal = isIncomeItem(b) ? "income" : (b.expenseType || "");
+          aVal = aVal.toLowerCase();
+          bVal = bVal.toLowerCase();
+          break;
+        case "frequency":
+          aVal = normalizeFrequency(a.frequency);
+          bVal = normalizeFrequency(b.frequency);
+          break;
+        case "paymentDate":
+          aVal = getSortableDate(a.paymentDay);
+          bVal = getSortableDate(b.paymentDay);
+          break;
+        case "account":
+          aVal = a.account?.toLowerCase() || "";
+          bVal = b.account?.toLowerCase() || "";
+          break;
+        case "plannedAmount":
+          aVal = Number(a.plannedAmount || 0);
+          bVal = Number(b.plannedAmount || 0);
+          break;
+        case "realAmount":
+          aVal = Number(getEffectiveReal(a) || 0);
+          bVal = Number(getEffectiveReal(b) || 0);
+          break;
+        default:
+          const defaultA = getSortableDate(a.paymentDay);
+          const defaultB = getSortableDate(b.paymentDay);
+          if (defaultA < defaultB) return -1;
+          if (defaultA > defaultB) return 1;
+          return a.originalIndex - b.originalIndex;
+      }
+      
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      
+      const dateA = getSortableDate(a.paymentDay);
+      const dateB = getSortableDate(b.paymentDay);
+      if (dateA < dateB) return -1;
+      if (dateA > dateB) return 1;
+      
+      return a.originalIndex - b.originalIndex;
+    });
+  };
+  
+  const displayedExpenses = getSortedExpenses();
 
   function groupExpensesBy(fieldName) {
     const totals = {};
@@ -1018,10 +1121,11 @@ function App() {
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
     const generatedAt = new Date().toLocaleDateString(language === "en" ? "en-US" : language === "fr" ? "fr-CA" : "es-ES");
     const movementsForPdf = [...salaryTableRows, ...expenseRowsForTable].sort((a, b) => {
-      if (!a.paymentDay && !b.paymentDay) return a.originalIndex - b.originalIndex;
-      if (!a.paymentDay) return 1;
-      if (!b.paymentDay) return -1;
-      return new Date(a.paymentDay + "T00:00:00") - new Date(b.paymentDay + "T00:00:00");
+      const dateA = getSortableDate(a.paymentDay);
+      const dateB = getSortableDate(b.paymentDay);
+      if (dateA < dateB) return -1;
+      if (dateA > dateB) return 1;
+      return a.originalIndex - b.originalIndex;
     }).map(item => {
       const incoming = isIncomingItem(item);
       const realValue = getEffectiveReal(item);
@@ -1061,7 +1165,7 @@ function App() {
     section("3. Random Income", "Use 'Ingresos' category for extra income. These appear in green and increase available balance.");
     section("4. Expenses", "Recurrent or sporadic. Planned value is expected amount. Real value from Admin payments.");
     section("5. Partial Payments", "Use Admin to add multiple payments to same expense.");
-    section("6. Date Sorting", "Click payment date column to sort ascending, descending, or return to original.");
+    section("6. Sorting", "Click any column header to sort. Click again to reverse. A third click returns to date ascending (default). Items without date always appear at the end. Your sort preference is saved automatically.");
     section("7. Reports", "Expense summaries by category and account. Income entries excluded.");
     section("8. Transfer Available Balance", "When creating a new month with positive available balance, you can transfer it as extra income or add to new month's available.");
     section("9. Export/Import Data", "Use JSON backup to save or restore all your data.");
@@ -1069,7 +1173,7 @@ function App() {
     doc.save("my-economy-user-guide.pdf");
   }
 
-  // Estilos - Mejorado contraste en selects
+  // Estilos
   const styles = {
     page: { minHeight: "100vh", padding: "0", fontFamily: "Inter, Arial, sans-serif", background: "radial-gradient(circle at top left, #182023 0%, #090b0d 38%, #050505 100%)", color: "#f5f5f5" },
     appShell: { maxWidth: "1500px", margin: "0 auto", padding: "0 24px 24px" },
@@ -1081,16 +1185,17 @@ function App() {
     nav: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" },
     navButton: { padding: "14px 18px", borderRadius: "0", border: "none", borderBottom: "3px solid transparent", cursor: "pointer", backgroundColor: "transparent", color: "#b8b8b8", fontSize: "15px" },
     navButtonActive: { color: "#ffffff", backgroundColor: "rgba(255,255,255,0.05)", borderBottom: "3px solid #e10600" },
-    // MEJORADO: Select con gris muy oscuro y texto blanco
     smallSelect: { padding: "12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.2)", backgroundColor: "#1a1a1a", color: "#ffffff", outline: "none", cursor: "pointer" },
     card: { border: "1px solid rgba(255,255,255,0.13)", borderRadius: "12px", padding: "20px", marginBottom: "20px", background: "linear-gradient(145deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025))", boxShadow: "0 18px 40px rgba(0,0,0,0.25)" },
     input: { width: "100%", padding: "11px 12px", borderRadius: "7px", border: "1px solid rgba(255,255,255,0.18)", marginTop: "6px", boxSizing: "border-box", backgroundColor: "#1a1a1a", color: "#ffffff", outline: "none" },
     tableInput: { width: "100%", padding: "6px", borderRadius: "5px", border: "1px solid rgba(255,255,255,0.18)", fontSize: "12px", backgroundColor: "#1a1a1a", color: "#ffffff" },
     button: { padding: "10px 14px", borderRadius: "7px", border: "none", cursor: "pointer", backgroundColor: "rgba(255,255,255,0.11)", color: "#ffffff" },
     buttonPrimary: { padding: "10px 14px", borderRadius: "7px", border: "none", cursor: "pointer", backgroundColor: "#e10600", color: "#ffffff", fontWeight: 800 },
+    buttonSecondary: { padding: "8px 12px", borderRadius: "7px", border: "none", cursor: "pointer", backgroundColor: "rgba(255,255,255,0.08)", color: "#ffc107", fontSize: "12px" },
     tableWrapper: { overflowX: "auto" },
     table: { width: "100%", borderCollapse: "collapse", marginTop: "20px", fontSize: "12px", backgroundColor: "rgba(0,0,0,0.16)" },
-    th: { padding: "10px", border: "1px solid rgba(255,255,255,0.13)", whiteSpace: "nowrap", color: "#ffffff", backgroundColor: "rgba(255,255,255,0.04)" },
+    th: { padding: "10px", border: "1px solid rgba(255,255,255,0.13)", whiteSpace: "nowrap", color: "#ffffff", backgroundColor: "rgba(255,255,255,0.04)", cursor: "pointer", userSelect: "none" },
+    thActive: { backgroundColor: "rgba(225, 6, 0, 0.25)", borderBottom: "2px solid #e10600" },
     td: { padding: "9px", border: "1px solid rgba(255,255,255,0.10)", textAlign: "center", fontSize: "12px", whiteSpace: "nowrap", color: "#e9e9e9" },
     listItem: { display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(255,255,255,0.13)", borderRadius: "8px", padding: "10px", marginBottom: "8px", backgroundColor: "rgba(255,255,255,0.04)" },
     modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0, 0, 0, 0.72)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000, padding: "20px", backdropFilter: "blur(8px)", cursor: "pointer" },
@@ -1109,14 +1214,35 @@ function App() {
     howToNote: { background: "rgba(225, 6, 0, 0.1)", padding: "12px", borderRadius: "8px", marginTop: "16px", border: "1px solid rgba(225, 6, 0, 0.3)" },
     availableBox: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderRadius: "10px", marginTop: "12px", fontSize: "18px", fontWeight: "bold", transition: "all 0.2s ease" },
     transferOption: { padding: "12px 16px", margin: "8px 0", borderRadius: "8px", backgroundColor: "#1a1a1a", cursor: "pointer", transition: "all 0.2s", border: "1px solid rgba(255,255,255,0.1)" },
+    sortBar: { display: "flex", justifyContent: "flex-end", marginBottom: "10px", gap: "10px", alignItems: "center" },
   };
 
   function renderReportTable(data, labelColumn) {
     return (
       <div style={styles.tableWrapper}>
         <table style={styles.table}>
-          <thead><tr><th style={styles.th}>{labelColumn}</th><th style={styles.th}>{t.items}</th><th style={styles.th}>{t.total}</th></tr></thead>
-          <tbody>{data.length === 0 ? <tr><td style={styles.td} colSpan="3">{t.noData}</td></tr> : data.map(item => <tr key={item.name}><td style={styles.td}>{item.name}</td><td style={styles.td}>{item.count}</td><td style={styles.td}>${item.amount.toFixed(2)}</td></tr>)}</tbody>
+          <thead>
+            <tr>
+              <th style={styles.th}>{labelColumn}</th>
+              <th style={styles.th}>{t.items}</th>
+              <th style={styles.th}>{t.total}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.length === 0 ? (
+              <tr>
+                <td style={styles.td} colSpan="3">{t.noData}</td>
+              </tr>
+            ) : (
+              data.map((item) => (
+                <tr key={item.name}>
+                  <td style={styles.td}>{item.name}</td>
+                  <td style={styles.td}>{item.count}</td>
+                  <td style={styles.td}>${item.amount.toFixed(2)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
         </table>
       </div>
     );
@@ -1125,14 +1251,22 @@ function App() {
   return (
     <div style={styles.page}>
       <div style={styles.topBar}>
-        <div style={styles.brand}><img src="/Altura.png" alt="Altura IT Solutions" style={styles.logo} /><div><h1 style={styles.brandTitle}>{APP_NAME}</h1><p style={styles.brandSubtitle}>{APP_SUBTITLE}</p></div></div>
+        <div style={styles.brand}>
+          <img src="/Altura.png" alt="Altura IT Solutions" style={styles.logo} />
+          <div>
+            <h1 style={styles.brandTitle}>{APP_NAME}</h1>
+            <p style={styles.brandSubtitle}>{APP_SUBTITLE}</p>
+          </div>
+        </div>
         <div style={styles.nav}>
           <button style={{ ...styles.navButton, ...(page === "dashboard" ? styles.navButtonActive : {}) }} onClick={() => setPage("dashboard")}>{t.dashboard}</button>
           <button style={{ ...styles.navButton, ...(page === "reports" ? styles.navButtonActive : {}) }} onClick={() => setPage("reports")}>{t.reports}</button>
           <button style={{ ...styles.navButton, ...(page === "settings" ? styles.navButtonActive : {}) }} onClick={() => setPage("settings")}>{t.settings}</button>
           <button style={{ ...styles.navButton, ...(page === "howto" ? styles.navButtonActive : {}) }} onClick={() => setPage("howto")}>{t.howTo}</button>
           <select style={styles.smallSelect} value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="es">Español</option><option value="en">English</option><option value="fr">Français</option>
+            <option value="es">Español</option>
+            <option value="en">English</option>
+            <option value="fr">Français</option>
           </select>
         </div>
       </div>
@@ -1149,7 +1283,10 @@ function App() {
                   <button onClick={() => initiateCreateNewMonth("recurrent")} style={styles.button}>{t.createRecurring}</button>
                   <button onClick={generateMonthlyPdf} style={styles.buttonPrimary}>{t.exportPdf}</button>
                   <button onClick={exportData} style={styles.button}>📦 {t.exportData}</button>
-                  <label style={{ ...styles.button, textAlign: "center", cursor: "pointer" }}>📂 {t.importData}<input type="file" accept=".json" onChange={importData} style={{ display: "none" }} /></label>
+                  <label style={{ ...styles.button, textAlign: "center", cursor: "pointer" }}>
+                    📂 {t.importData}
+                    <input type="file" accept=".json" onChange={importData} style={{ display: "none" }} />
+                  </label>
                 </div>
               </div>
 
@@ -1158,68 +1295,125 @@ function App() {
                 <label>{t.monthlyIncome}</label>
                 <input style={styles.input} type="number" value={income} onChange={(e) => updateIncome(e.target.value)} />
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "12px" }}>
-                  <div><label>{t.incomeFrequency}</label><select style={styles.input} value={incomeFrequency} onChange={(e) => updateIncomeFrequency(e.target.value)}><option value="monthly">{t.monthly}</option><option value="biweekly">{t.biweekly}</option><option value="weekly">{t.weekly}</option></select></div>
-                  <div><label>{t.incomeDate}</label><input style={styles.input} type="date" value={incomeDate} onChange={(e) => updateIncomeDate(e.target.value)} /></div>
+                  <div>
+                    <label>{t.incomeFrequency}</label>
+                    <select style={styles.input} value={incomeFrequency} onChange={(e) => updateIncomeFrequency(e.target.value)}>
+                      <option value="monthly">{t.monthly}</option>
+                      <option value="biweekly">{t.biweekly}</option>
+                      <option value="weekly">{t.weekly}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>{t.incomeDate}</label>
+                    <input style={styles.input} type="date" value={incomeDate} onChange={(e) => updateIncomeDate(e.target.value)} />
+                  </div>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}><span>{t.totalPlanned}</span><strong>${totalPlanned.toFixed(2)}</strong></div>
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}><span>{t.totalReal}</span><strong>${totalReal.toFixed(2)}</strong></div>
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}><span>{t.randomIncome}</span><strong>+${randomIncomeTotal.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                  <span>{t.totalPlanned}</span>
+                  <strong>${totalPlanned.toFixed(2)}</strong>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                  <span>{t.totalReal}</span>
+                  <strong>${totalReal.toFixed(2)}</strong>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                  <span>{t.randomIncome}</span>
+                  <strong>+${randomIncomeTotal.toFixed(2)}</strong>
+                </div>
                 <div style={{ ...styles.availableBox, backgroundColor: getAvailableColor(available).backgroundColor, border: `1px solid ${getAvailableColor(available).color}40` }}>
-                  <span>{t.available}</span><strong style={{ color: getAvailableColor(available).color, fontSize: "20px" }}>${available.toFixed(2)}</strong>
+                  <span>{t.available}</span>
+                  <strong style={{ color: getAvailableColor(available).color, fontSize: "20px" }}>${available.toFixed(2)}</strong>
                 </div>
               </div>
 
               <div style={styles.card}>
                 <h2>{t.todayAndUpcoming}</h2>
-                <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginBottom: "15px" }}><span>{t.currentDate}</span><strong style={{ display: "block", marginTop: "5px" }}>{getTodayLabel()}</strong></div>
+                <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginBottom: "15px" }}>
+                  <span>{t.currentDate}</span>
+                  <strong style={{ display: "block", marginTop: "5px" }}>{getTodayLabel()}</strong>
+                </div>
                 <h3>{t.upcomingPayments}</h3>
-                {upcomingPayments.length === 0 ? <p>{t.noUpcomingPayments}</p> : upcomingPayments.map((movement, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                    <div><strong>{movement.type === "income" || movement.type === "salary" ? "+ " : "- "}{movement.name}</strong><p style={{ margin: "2px 0 0", fontSize: "11px", color: "#b8b8b8" }}>{formatDisplayDate(movement.date.toISOString().slice(0, 10))} · {movement.daysLeft === 0 ? t.today : `${t.inDays} ${movement.daysLeft} ${t.days}`}</p></div>
-                    <strong>{movement.type === "income" || movement.type === "salary" ? "+" : "-"}${Number(movement.amount || 0).toFixed(2)}</strong>
-                  </div>
-                ))}
+                {upcomingPayments.length === 0 ? (
+                  <p>{t.noUpcomingPayments}</p>
+                ) : (
+                  upcomingPayments.map((movement, idx) => (
+                    <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                      <div>
+                        <strong>{movement.type === "income" || movement.type === "salary" ? "+ " : "- "}{movement.name}</strong>
+                        <p style={{ margin: "2px 0 0", fontSize: "11px", color: "#b8b8b8" }}>
+                          {formatDisplayDate(movement.date.toISOString().slice(0, 10))} · {movement.daysLeft === 0 ? t.today : `${t.inDays} ${movement.daysLeft} ${t.days}`}
+                        </p>
+                      </div>
+                      <strong>{movement.type === "income" || movement.type === "salary" ? "+" : "-"}${Number(movement.amount || 0).toFixed(2)}</strong>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
             <div style={styles.card}>
-              <h2>{t.addExpense}</h2>
-              <form onSubmit={addExpense} style={styles.formGrid}>
-                <div><label>{t.name}</label><input style={styles.input} value={newExpense.name} onChange={(e) => setNewExpense({ ...newExpense, name: e.target.value })} /></div>
-                <div><label>{t.totalPlanned}</label><input style={styles.input} type="number" value={newExpense.plannedAmount} onChange={(e) => setNewExpense({ ...newExpense, plannedAmount: e.target.value })} /></div>
-                <div><label>{t.category}</label><select style={styles.input} value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}>{categories.map(c => <option key={c}>{c}</option>)}</select></div>
-                <div><label>{t.expenseType}</label><select style={styles.input} value={newExpense.expenseType} disabled={newExpense.category === INCOME_CATEGORY} onChange={(e) => setNewExpense({ ...newExpense, expenseType: e.target.value })}><option value="recurrent">{t.recurrent}</option><option value="sporadic">{t.sporadic}</option></select></div>
-                <div><label>{t.frequency}</label><select style={styles.input} value={newExpense.frequency} onChange={(e) => setNewExpense({ ...newExpense, frequency: e.target.value })}><option value="monthly">{t.monthly}</option><option value="weekly">{t.weekly}</option><option value="biweekly">{t.biweekly}</option><option value="once">{t.once}</option></select></div>
-                <div><label>{t.paymentDate}</label><input style={styles.input} type="date" value={newExpense.paymentDay} onChange={(e) => setNewExpense({ ...newExpense, paymentDay: e.target.value })} /></div>
-                <div><label>{t.account}</label><select style={styles.input} value={newExpense.account} onChange={(e) => setNewExpense({ ...newExpense, account: e.target.value })}>{accounts.map(a => <option key={a}>{a}</option>)}</select></div>
-                <div style={{ display: "flex", alignItems: "end" }}><button type="submit" style={styles.button}>{t.addExpense}</button></div>
-              </form>
-            </div>
-
-            <div style={styles.card}>
+              <div style={styles.sortBar}>
+                <button onClick={resetSort} style={styles.buttonSecondary}>🔄 {t.resetSort}</button>
+                <span style={{ fontSize: "11px", color: "#b8b8b8" }}>
+                  {sortConfig.key === "paymentDate" && sortConfig.direction === "asc" 
+                    ? `📅 ${t.sortByDateDefault}` 
+                    : sortConfig.key 
+                      ? `📊 ${t.sortBy}: ${sortConfig.key} (${sortConfig.direction === "asc" ? "↑" : "↓"})` 
+                      : ""}
+                </span>
+              </div>
               <h2>{t.expensesMonth}</h2>
               <div style={styles.tableWrapper}>
                 <table style={styles.table}>
-                  <thead><tr><th style={styles.th}>{t.name}</th><th style={styles.th}>{t.category}</th><th style={styles.th}>{t.type}</th><th style={styles.th}>{t.frequency}</th><th style={{ ...styles.th, cursor: "pointer" }} onClick={toggleDateSort} title={getDateSortTitle()}>{t.paymentDate} <span>{getDateSortIcon()}</span></th><th style={styles.th}>{t.account}</th><th style={styles.th}>{t.planned}</th><th style={styles.th}>{t.real}</th><th style={styles.th}>{t.payments}</th><th style={styles.th}>{t.action}</th></tr></thead>
-                  <tbody>{displayedExpenses.map((expense) => {
-                    const idx = expense.originalIndex;
-                    const isEditing = editingRowIndex === idx;
-                    const active = isEditing ? editingExpense : expense;
-                    const realVal = getEffectiveReal(active);
-                    const isIncoming = isIncomingItem(active);
-                    return <tr key={`${idx}-${expense.paymentDay}`} style={getRowStyle(active)}>
-                      <td style={styles.td}>{isEditing ? <input style={styles.tableInput} value={editingExpense.name} onChange={e => setEditingExpense({ ...editingExpense, name: e.target.value })} /> : expense.name}</td>
-                      <td style={styles.td}>{isEditing ? <select style={styles.tableInput} value={editingExpense.category} onChange={e => setEditingExpense({ ...editingExpense, category: e.target.value })}>{categories.map(c => <option key={c}>{c}</option>)}</select> : expense.category}</td>
-                      <td style={styles.td}>{isIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.expenseType} onChange={e => setEditingExpense({ ...editingExpense, expenseType: e.target.value })}><option value="recurrent">{t.recurrent}</option><option value="sporadic">{t.sporadic}</option></select> : getExpenseTypeLabel(expense.expenseType)}</td>
-                      <td style={styles.td}>{isIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.frequency} onChange={e => setEditingExpense({ ...editingExpense, frequency: e.target.value })}><option value="monthly">{t.monthly}</option><option value="weekly">{t.weekly}</option><option value="biweekly">{t.biweekly}</option><option value="once">{t.once}</option></select> : getFrequencyLabel(expense.frequency)}</td>
-                      <td style={styles.td}>{isEditing ? <input style={styles.tableInput} type="date" value={editingExpense.paymentDay} onChange={e => setEditingExpense({ ...editingExpense, paymentDay: e.target.value })} /> : expense.paymentDay}</td>
-                      <td style={styles.td}>{isEditing ? <select style={styles.tableInput} value={editingExpense.account} onChange={e => setEditingExpense({ ...editingExpense, account: e.target.value })}>{accounts.map(a => <option key={a}>{a}</option>)}</select> : expense.account}</td>
-                      <td style={styles.td}>{isEditing ? <input style={styles.tableInput} type="number" value={editingExpense.plannedAmount} onChange={e => setEditingExpense({ ...editingExpense, plannedAmount: e.target.value })} /> : `${isIncoming ? "+" : ""}$${Number(expense.plannedAmount).toFixed(2)}`}</td>
-                      <td style={{ ...styles.td, ...getRealCellStyle(active) }}>{isIncoming ? `+$${Number(expense.plannedAmount).toFixed(2)}` : realVal === null ? t.pending : `$${Number(realVal).toFixed(2)}`}</td>
-                      <td style={styles.td}>{isIncoming ? "—" : <button onClick={() => openPayments(idx)}>{t.managePayments}</button>}</td>
-                      <td style={styles.td}>{isEditing ? <><button onClick={() => saveEditRow(idx)}>{t.save}</button><button onClick={cancelEditRow} style={{ marginLeft: "5px" }}>{t.cancel}</button></> : <><button onClick={() => startEditRow(idx)}>{t.edit}</button><button onClick={() => deleteExpense(idx)} style={{ marginLeft: "5px" }}>{t.delete}</button></>}</td>
-                    </tr>;
-                  })}</tbody>
+                  <thead>
+                    <tr>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "name" ? styles.thActive : {}) }} onClick={() => requestSort("name")} title={getSortTitle(t.name)}>{t.name} {getSortIcon("name")}</th>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "category" ? styles.thActive : {}) }} onClick={() => requestSort("category")} title={getSortTitle(t.category)}>{t.category} {getSortIcon("category")}</th>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "type" ? styles.thActive : {}) }} onClick={() => requestSort("type")} title={getSortTitle(t.type)}>{t.type} {getSortIcon("type")}</th>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "frequency" ? styles.thActive : {}) }} onClick={() => requestSort("frequency")} title={getSortTitle(t.frequency)}>{t.frequency} {getSortIcon("frequency")}</th>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "paymentDate" ? styles.thActive : {}) }} onClick={() => requestSort("paymentDate")} title={getSortTitle(t.paymentDate)}>{t.paymentDate} {getSortIcon("paymentDate")}</th>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "account" ? styles.thActive : {}) }} onClick={() => requestSort("account")} title={getSortTitle(t.account)}>{t.account} {getSortIcon("account")}</th>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "plannedAmount" ? styles.thActive : {}) }} onClick={() => requestSort("plannedAmount")} title={getSortTitle(t.planned)}>{t.planned} {getSortIcon("plannedAmount")}</th>
+                      <th style={{ ...styles.th, ...(sortConfig.key === "realAmount" ? styles.thActive : {}) }} onClick={() => requestSort("realAmount")} title={getSortTitle(t.real)}>{t.real} {getSortIcon("realAmount")}</th>
+                      <th style={styles.th}>{t.payments}</th>
+                      <th style={styles.th}>{t.action}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedExpenses.map((expense) => {
+                      const idx = expense.originalIndex;
+                      const isEditing = editingRowIndex === idx;
+                      const active = isEditing ? editingExpense : expense;
+                      const realVal = getEffectiveReal(active);
+                      const isIncoming = isIncomingItem(active);
+                      return (
+                        <tr key={`${idx}-${expense.paymentDay}`} style={getRowStyle(active)}>
+                          <td style={styles.td}>{isEditing ? <input style={styles.tableInput} value={editingExpense.name} onChange={e => setEditingExpense({ ...editingExpense, name: e.target.value })} /> : expense.name}</td>
+                          <td style={styles.td}>{isEditing ? <select style={styles.tableInput} value={editingExpense.category} onChange={e => setEditingExpense({ ...editingExpense, category: e.target.value })}>{categories.map(c => <option key={c}>{c}</option>)}</select> : expense.category}</td>
+                          <td style={styles.td}>{isIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.expenseType} onChange={e => setEditingExpense({ ...editingExpense, expenseType: e.target.value })}><option value="recurrent">{t.recurrent}</option><option value="sporadic">{t.sporadic}</option></select> : getExpenseTypeLabel(expense.expenseType)}</td>
+                          <td style={styles.td}>{isIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.frequency} onChange={e => setEditingExpense({ ...editingExpense, frequency: e.target.value })}><option value="monthly">{t.monthly}</option><option value="weekly">{t.weekly}</option><option value="biweekly">{t.biweekly}</option><option value="once">{t.once}</option></select> : getFrequencyLabel(expense.frequency)}</td>
+                          <td style={styles.td}>{isEditing ? <input style={styles.tableInput} type="date" value={editingExpense.paymentDay} onChange={e => setEditingExpense({ ...editingExpense, paymentDay: e.target.value })} /> : (expense.paymentDay || "-")}</td>
+                          <td style={styles.td}>{isEditing ? <select style={styles.tableInput} value={editingExpense.account} onChange={e => setEditingExpense({ ...editingExpense, account: e.target.value })}>{accounts.map(a => <option key={a}>{a}</option>)}</select> : expense.account}</td>
+                          <td style={styles.td}>{isEditing ? <input style={styles.tableInput} type="number" value={editingExpense.plannedAmount} onChange={e => setEditingExpense({ ...editingExpense, plannedAmount: e.target.value })} /> : `${isIncoming ? "+" : ""}$${Number(expense.plannedAmount).toFixed(2)}`}</td>
+                          <td style={{ ...styles.td, ...getRealCellStyle(active) }}>{isIncoming ? `+$${Number(expense.plannedAmount).toFixed(2)}` : realVal === null ? t.pending : `$${Number(realVal).toFixed(2)}`}</td>
+                          <td style={styles.td}>{isIncoming ? "—" : <button onClick={() => openPayments(idx)}>{t.managePayments}</button>}</td>
+                          <td style={styles.td}>
+                            {isEditing ? (
+                              <>
+                                <button onClick={() => saveEditRow(idx)}>{t.save}</button>
+                                <button onClick={cancelEditRow} style={{ marginLeft: "5px" }}>{t.cancel}</button>
+                              </>
+                            ) : (
+                              <>
+                                <button onClick={() => startEditRow(idx)}>{t.edit}</button>
+                                <button onClick={() => deleteExpense(idx)} style={{ marginLeft: "5px" }}>{t.delete}</button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
                 </table>
               </div>
             </div>
@@ -1232,15 +1426,25 @@ function App() {
               <h2>{t.reports}</h2>
               <input style={styles.input} type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginTop: "18px" }}>
-                <div><span>{t.monthlyIncome}</span><strong>${numericIncome.toFixed(2)}</strong></div><div><span>{t.randomIncome}</span><strong>+${randomIncomeTotal.toFixed(2)}</strong></div>
-                <div><span>{t.totalPlanned}</span><strong>${totalPlanned.toFixed(2)}</strong></div><div><span>{t.totalReal}</span><strong>${totalReal.toFixed(2)}</strong></div>
+                <div><span>{t.monthlyIncome}</span><strong>${numericIncome.toFixed(2)}</strong></div>
+                <div><span>{t.randomIncome}</span><strong>+${randomIncomeTotal.toFixed(2)}</strong></div>
+                <div><span>{t.totalPlanned}</span><strong>${totalPlanned.toFixed(2)}</strong></div>
+                <div><span>{t.totalReal}</span><strong>${totalReal.toFixed(2)}</strong></div>
                 <div><span>{t.available}</span><strong>${available.toFixed(2)}</strong></div>
               </div>
-              <p style={{ color: "#b8b8b8", marginTop: "16px" }}>{language === "es" ? "Los reportes muestran únicamente gastos." : language === "en" ? "Reports show expenses only." : "Les rapports affichent seulement les dépenses."}</p>
+              <p style={{ color: "#b8b8b8", marginTop: "16px" }}>
+                {language === "es" ? "Los reportes muestran únicamente gastos." : language === "en" ? "Reports show expenses only." : "Les rapports affichent seulement les dépenses."}
+              </p>
             </div>
             <div style={styles.reportGrid}>
-              <div style={styles.card}><h2>{t.byCategory}</h2>{renderReportTable(categoryReportData, t.category)}</div>
-              <div style={styles.card}><h2>{t.byAccount}</h2>{renderReportTable(accountReportData, t.account)}</div>
+              <div style={styles.card}>
+                <h2>{t.byCategory}</h2>
+                {renderReportTable(categoryReportData, t.category)}
+              </div>
+              <div style={styles.card}>
+                <h2>{t.byAccount}</h2>
+                {renderReportTable(accountReportData, t.account)}
+              </div>
             </div>
           </>
         )}
@@ -1249,29 +1453,105 @@ function App() {
           <div style={styles.card}>
             <h2>{t.howTo} — {APP_NAME}</h2>
             <div style={styles.howToSection}>
-              <div style={styles.howToCard}><div style={styles.howToTitle}>📌 1. Concepto General</div><p><strong>My Economy</strong> te ayuda a planificar tus gastos mensuales y compararlos con lo que realmente pagas, permitiendo pagos parciales.</p></div>
-              <div style={styles.howToCard}><div style={styles.howToTitle}>💰 2. Ingreso Mensual</div><p>Define tu salario y frecuencia (Mensual, Bisemanal, Semanal). La app calcula automáticamente las fechas de pago.</p></div>
-              <div style={styles.howToCard}><div style={styles.howToTitle}>✨ 3. Ingresos Aleatorios</div><p>Usa la categoría <strong>"Ingresos"</strong> para dinero extra. Aparece en verde y aumenta el disponible.</p></div>
-              <div style={styles.howToCard}><div style={styles.howToTitle}>💸 4. Pagos Reales</div><p>Usa el botón <strong>"Admin"</strong> para registrar uno o múltiples pagos para un mismo gasto.</p></div>
-              <div style={styles.howToCard}><div style={styles.howToTitle}>🎨 5. Colores</div><ul style={styles.howToList}><li>🟢 <span style={{ color: "#4caf50" }}>Disponible verde</span> = Saldo positivo</li><li>🔴 <span style={{ color: "#f44336" }}>Disponible rojo</span> = Números rojos</li><li>🟢 Celda Real verde = Pagaste menos (ahorraste)</li><li>🔴 Celda Real roja = Pagaste más (sobrecosto)</li></ul></div>
-              <div style={styles.howToCard}><div style={styles.howToTitle}>🔄 6. Transferir Disponible</div><p>Al crear un nuevo mes con disponible positivo, puedes transferirlo como ingreso extra o agregarlo al disponible del nuevo mes.</p></div>
-              <div style={styles.howToCard}><div style={styles.howToTitle}>❌ 7. Cerrar Popups</div><p>Clic en "Cerrar", clic fuera del popup, o tecla ESC.</p></div>
-              <div style={styles.howToNote}><strong>💡 Consejo:</strong> Disponible verde = buen presupuesto. Disponible rojo = estás gastando más de lo que ingresas.</div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>📌 1. Concepto General</div>
+                <p><strong>My Economy</strong> te ayuda a planificar tus gastos mensuales y compararlos con lo que realmente pagas, permitiendo pagos parciales.</p>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>💰 2. Ingreso Mensual</div>
+                <p>Define tu salario y frecuencia (Mensual, Bisemanal, Semanal). La app calcula automáticamente las fechas de pago.</p>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>✨ 3. Ingresos Aleatorios</div>
+                <p>Usa la categoría <strong>"Ingresos"</strong> para dinero extra. Aparece en verde y aumenta el disponible.</p>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>💸 4. Pagos Reales</div>
+                <p>Usa el botón <strong>"Admin"</strong> para registrar uno o múltiples pagos para un mismo gasto.</p>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>🎨 5. Colores</div>
+                <ul style={styles.howToList}>
+                  <li>🟢 <span style={{ color: "#4caf50" }}>Disponible verde</span> = Saldo positivo</li>
+                  <li>🔴 <span style={{ color: "#f44336" }}>Disponible rojo</span> = Números rojos</li>
+                  <li>🟢 Celda Real verde = Pagaste menos (ahorraste)</li>
+                  <li>🔴 Celda Real roja = Pagaste más (sobrecosto)</li>
+                </ul>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>🔄 6. Transferir Disponible</div>
+                <p>Al crear un nuevo mes con disponible positivo, puedes transferirlo como ingreso extra o agregarlo al disponible del nuevo mes.</p>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>📊 7. Ordenar Columnas</div>
+                <p>Haz clic en cualquier encabezado de columna para ordenar la tabla. Cada columna tiene dos estados: ascendente → descendente → vuelve a fecha ascendente (default). Los elementos sin fecha siempre aparecen al final. Tu preferencia de orden se guarda automáticamente y se mantiene al recargar la página. Usa el botón "Resetear orden" para volver al orden por fecha ascendente.</p>
+              </div>
+              <div style={styles.howToCard}>
+                <div style={styles.howToTitle}>❌ 8. Cerrar Popups</div>
+                <p>Clic en "Cerrar", clic fuera del popup, o tecla ESC.</p>
+              </div>
+              <div style={styles.howToNote}>
+                <strong>💡 Consejo:</strong> Disponible verde = buen presupuesto. Disponible rojo = estás gastando más de lo que ingresas. El orden de la tabla se guarda automáticamente.
+              </div>
             </div>
           </div>
         )}
 
         {page === "settings" && (
           <>
-            <div style={styles.card}><h2>{t.categoriesConfig}</h2><form onSubmit={addCategory} style={{ display: "flex", gap: "10px", marginBottom: "20px" }}><input style={styles.input} placeholder={t.newCategory} value={newCategory} onChange={e => setNewCategory(e.target.value)} /><button style={styles.button} type="submit">{t.addCategory}</button></form>{categories.map(c => <div key={c} style={styles.listItem}><span>{c}</span><button onClick={() => deleteCategory(c)} disabled={c === INCOME_CATEGORY}>{t.delete}</button></div>)}</div>
-            <div style={styles.card}><h2>{t.accountsConfig}</h2><form onSubmit={addAccount} style={{ display: "flex", gap: "10px", marginBottom: "20px" }}><input style={styles.input} placeholder={t.newAccount} value={newAccount} onChange={e => setNewAccount(e.target.value)} /><button style={styles.button} type="submit">{t.addAccount}</button></form>{accounts.map(a => <div key={a} style={styles.listItem}><span>{a}</span><button onClick={() => deleteAccount(a)}>{t.delete}</button></div>)}</div>
-            <div style={styles.card}><h2>{t.createdMonths}</h2>{Object.keys(monthlyData).length === 0 ? <p>{t.noMonths}</p> : Object.keys(monthlyData).sort().map(m => <div key={m} style={styles.listItem}><span>{m}</span><button onClick={() => deleteMonth(m)}>{t.delete}</button></div>)}</div>
+            <div style={styles.card}>
+              <h2>{t.categoriesConfig}</h2>
+              <form onSubmit={addCategory} style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+                <input style={styles.input} placeholder={t.newCategory} value={newCategory} onChange={e => setNewCategory(e.target.value)} />
+                <button style={styles.button} type="submit">{t.addCategory}</button>
+              </form>
+              {categories.map(c => (
+                <div key={c} style={styles.listItem}>
+                  <span>{c}</span>
+                  <button onClick={() => deleteCategory(c)} disabled={c === INCOME_CATEGORY}>{t.delete}</button>
+                </div>
+              ))}
+            </div>
+            <div style={styles.card}>
+              <h2>{t.accountsConfig}</h2>
+              <form onSubmit={addAccount} style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+                <input style={styles.input} placeholder={t.newAccount} value={newAccount} onChange={e => setNewAccount(e.target.value)} />
+                <button style={styles.button} type="submit">{t.addAccount}</button>
+              </form>
+              {accounts.map(a => (
+                <div key={a} style={styles.listItem}>
+                  <span>{a}</span>
+                  <button onClick={() => deleteAccount(a)}>{t.delete}</button>
+                </div>
+              ))}
+            </div>
+            <div style={styles.card}>
+              <h2>{t.createdMonths}</h2>
+              {Object.keys(monthlyData).length === 0 ? (
+                <p>{t.noMonths}</p>
+              ) : (
+                Object.keys(monthlyData).sort().map(m => (
+                  <div key={m} style={styles.listItem}>
+                    <span>{m}</span>
+                    <button onClick={() => deleteMonth(m)}>{t.delete}</button>
+                  </div>
+                ))
+              )}
+            </div>
           </>
         )}
 
         <footer style={styles.footer}>
-          <div style={styles.footerBrand}><img src="/Altura.png" alt="Altura IT Solutions" style={styles.footerLogo} /><div><strong>{APP_NAME}</strong> <span>{APP_VERSION}</span><p>{APP_SUBTITLE}</p></div></div>
-          <div style={{ textAlign: "center" }}>Developed by <span style={styles.redText}>{APP_DEVELOPER}</span><br />© 2026 Diego Isaza</div>
+          <div style={styles.footerBrand}>
+            <img src="/Altura.png" alt="Altura IT Solutions" style={styles.footerLogo} />
+            <div>
+              <strong>{APP_NAME}</strong> <span>{APP_VERSION}</span>
+              <p>{APP_SUBTITLE}</p>
+            </div>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            Developed by <span style={styles.redText}>{APP_DEVELOPER}</span><br />© 2026 Diego Isaza
+          </div>
           <div>{APP_NAME} is a personal finance management application designed to help you plan, track and control your finances.</div>
         </footer>
       </main>
@@ -1281,24 +1561,39 @@ function App() {
         <div style={styles.modalOverlay} onClick={() => setShowTransferDialog(false)}>
           <div style={styles.modal} ref={modalRef} onClick={e => e.stopPropagation()}>
             <h2>💰 {t.transferAvailable}</h2>
-            <p style={{ marginBottom: "20px" }}>{t.previousAvailable}: <strong style={{ color: "#4caf50", fontSize: "20px" }}>${(() => {
-              const [year, month] = selectedMonth.split("-").map(Number);
-              const prevDate = new Date(year, month - 2, 1);
-              const prevMonth = prevDate.toISOString().slice(0, 7);
-              if (monthlyData[prevMonth]) {
-                const prevExpenses = (monthlyData[prevMonth].expenses || []).filter(e => !isIncomeItem(e));
-                const prevPlanned = prevExpenses.reduce((s, e) => s + Number(e.plannedAmount || 0), 0);
-                const prevRandom = (monthlyData[prevMonth].expenses || []).filter(isIncomeItem).reduce((s, e) => s + Number(e.plannedAmount || 0), 0);
-                const prevIncome = Number(monthlyData[prevMonth].income || 0);
-                return (prevIncome + prevRandom - prevPlanned).toFixed(2);
-              }
-              return "0.00";
-            })()}</strong></p>
+            <p style={{ marginBottom: "20px" }}>
+              {t.previousAvailable}: <strong style={{ color: "#4caf50", fontSize: "20px" }}>
+                ${(() => {
+                  const [year, month] = selectedMonth.split("-").map(Number);
+                  const prevDate = new Date(year, month - 2, 1);
+                  const prevMonth = prevDate.toISOString().slice(0, 7);
+                  if (monthlyData[prevMonth]) {
+                    const prevExpenses = (monthlyData[prevMonth].expenses || []).filter(e => !isIncomeItem(e));
+                    const prevPlanned = prevExpenses.reduce((s, e) => s + Number(e.plannedAmount || 0), 0);
+                    const prevRandom = (monthlyData[prevMonth].expenses || []).filter(isIncomeItem).reduce((s, e) => s + Number(e.plannedAmount || 0), 0);
+                    const prevIncome = Number(monthlyData[prevMonth].income || 0);
+                    return (prevIncome + prevRandom - prevPlanned).toFixed(2);
+                  }
+                  return "0.00";
+                })()}
+              </strong>
+            </p>
             <p style={{ marginBottom: "24px", color: "#b8b8b8" }}>¿Cómo quieres manejar este sobrante en el nuevo mes?</p>
-            <div style={styles.transferOption} onClick={() => handleTransferOption("none")}><strong>📄 {t.transferOptionNone}</strong><p style={{ fontSize: "12px", color: "#b8b8b8", marginTop: "4px" }}>Comenzar el nuevo mes sin el sobrante del mes anterior.</p></div>
-            <div style={styles.transferOption} onClick={() => handleTransferOption("income")}><strong>✨ {t.transferOptionIncome}</strong><p style={{ fontSize: "12px", color: "#b8b8b8", marginTop: "4px" }}>El sobrante aparecerá como un ingreso extra en la categoría "{INCOME_CATEGORY}".</p></div>
-            <div style={styles.transferOption} onClick={() => handleTransferOption("available")}><strong>📊 {t.transferOptionAvailable}</strong><p style={{ fontSize: "12px", color: "#b8b8b8", marginTop: "4px" }}>El sobrante se sumará al ingreso mensual, aumentando el disponible del nuevo mes.</p></div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "24px" }}><button style={styles.button} onClick={() => setShowTransferDialog(false)}>{t.cancel}</button></div>
+            <div style={styles.transferOption} onClick={() => handleTransferOption("none")}>
+              <strong>📄 {t.transferOptionNone}</strong>
+              <p style={{ fontSize: "12px", color: "#b8b8b8", marginTop: "4px" }}>Comenzar el nuevo mes sin el sobrante del mes anterior.</p>
+            </div>
+            <div style={styles.transferOption} onClick={() => handleTransferOption("income")}>
+              <strong>✨ {t.transferOptionIncome}</strong>
+              <p style={{ fontSize: "12px", color: "#b8b8b8", marginTop: "4px" }}>El sobrante aparecerá como un ingreso extra en la categoría "{INCOME_CATEGORY}".</p>
+            </div>
+            <div style={styles.transferOption} onClick={() => handleTransferOption("available")}>
+              <strong>📊 {t.transferOptionAvailable}</strong>
+              <p style={{ fontSize: "12px", color: "#b8b8b8", marginTop: "4px" }}>El sobrante se sumará al ingreso mensual, aumentando el disponible del nuevo mes.</p>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "24px" }}>
+              <button style={styles.button} onClick={() => setShowTransferDialog(false)}>{t.cancel}</button>
+            </div>
           </div>
         </div>
       )}
@@ -1308,18 +1603,57 @@ function App() {
         <div style={styles.modalOverlay} onClick={handleOverlayClick}>
           <div style={styles.modal} ref={modalRef}>
             <h2>{t.managePaymentsFull}: {selectedPaymentExpense.name}</h2>
-            <p>{t.planned}: ${selectedPaymentExpense.plannedAmount.toFixed(2)} | {t.real}: ${selectedPaymentReal.toFixed(2)} | {t.difference}: {selectedPaymentDifference >= 0 ? "+" : "-"}${Math.abs(selectedPaymentDifference).toFixed(2)} {selectedPaymentDifference >= 0 ? t.savings : t.overCost}</p>
+            <p>
+              {t.planned}: ${selectedPaymentExpense.plannedAmount.toFixed(2)} | {t.real}: ${selectedPaymentReal.toFixed(2)} | 
+              {t.difference}: {selectedPaymentDifference >= 0 ? "+" : "-"}${Math.abs(selectedPaymentDifference).toFixed(2)} {selectedPaymentDifference >= 0 ? t.savings : t.overCost}
+            </p>
             <form onSubmit={addPayment} style={styles.formGrid}>
-              <div><label>{t.paymentDate}</label><input style={styles.input} type="date" value={newPayment.date} onChange={e => setNewPayment({ ...newPayment, date: e.target.value })} /></div>
-              <div><label>{t.paymentAmount}</label><input style={styles.input} type="number" value={newPayment.amount} onChange={e => setNewPayment({ ...newPayment, amount: e.target.value })} /></div>
-              <div><label>{t.paymentNote}</label><input style={styles.input} value={newPayment.note} onChange={e => setNewPayment({ ...newPayment, note: e.target.value })} /></div>
-              <div style={{ display: "flex", gap: "10px", alignItems: "end" }}><button type="submit" style={styles.button}>{t.addPayment}</button><button type="button" style={styles.button} onClick={closePaymentModal}>{t.close}</button></div>
+              <div>
+                <label>{t.paymentDate}</label>
+                <input style={styles.input} type="date" value={newPayment.date} onChange={e => setNewPayment({ ...newPayment, date: e.target.value })} />
+              </div>
+              <div>
+                <label>{t.paymentAmount}</label>
+                <input style={styles.input} type="number" value={newPayment.amount} onChange={e => setNewPayment({ ...newPayment, amount: e.target.value })} />
+              </div>
+              <div>
+                <label>{t.paymentNote}</label>
+                <input style={styles.input} value={newPayment.note} onChange={e => setNewPayment({ ...newPayment, note: e.target.value })} />
+              </div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "end" }}>
+                <button type="submit" style={styles.button}>{t.addPayment}</button>
+                <button type="button" style={styles.button} onClick={closePaymentModal}>{t.close}</button>
+              </div>
             </form>
             <h3>{t.paymentHistory}</h3>
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
-                <thead><tr><th style={styles.th}>{t.paymentDate}</th><th style={styles.th}>{t.paymentAmount}</th><th style={styles.th}>{t.paymentNote}</th><th style={styles.th}>{t.action}</th></tr></thead>
-                <tbody>{selectedPaymentExpense.payments.length === 0 ? <tr><td style={styles.td} colSpan="4">{t.noPayments}</td></tr> : selectedPaymentExpense.payments.map((p, idx) => <tr key={idx}><td style={styles.td}>{p.date}</td><td style={styles.td}>${Number(p.amount).toFixed(2)}</td><td style={styles.td}>{p.note}</td><td style={styles.td}><button onClick={() => deletePayment(paymentExpenseIndex, idx)}>{t.delete}</button></td></tr>)}</tbody>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>{t.paymentDate}</th>
+                    <th style={styles.th}>{t.paymentAmount}</th>
+                    <th style={styles.th}>{t.paymentNote}</th>
+                    <th style={styles.th}>{t.action}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedPaymentExpense.payments.length === 0 ? (
+                    <tr>
+                      <td style={styles.td} colSpan="4">{t.noPayments}</td>
+                    </tr>
+                  ) : (
+                    selectedPaymentExpense.payments.map((p, idx) => (
+                      <tr key={idx}>
+                        <td style={styles.td}>{p.date}</td>
+                        <td style={styles.td}>${Number(p.amount).toFixed(2)}</td>
+                        <td style={styles.td}>{p.note}</td>
+                        <td style={styles.td}>
+                          <button onClick={() => deletePayment(paymentExpenseIndex, idx)}>{t.delete}</button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
               </table>
             </div>
           </div>

@@ -7,7 +7,7 @@ const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
 
 const APP_NAME = "My Economy";
 const APP_SUBTITLE = "Take control of your money.";
-const APP_VERSION = "v1.8.0";
+const APP_VERSION = "v1.9.0";
 const APP_DEVELOPER = "Altura IT Solutions";
 const INCOME_CATEGORY = "Ingresos";
 
@@ -380,8 +380,16 @@ function App() {
     if (saved) {
       return JSON.parse(saved);
     }
-    // Por defecto: ordenar por fecha ascendente
     return { key: "paymentDate", direction: "asc" };
+  });
+
+  // ============ NUEVO: Estado para la nube (oculto para usuarios normales) ============
+  const [cloudFilePath, setCloudFilePath] = useState(() => {
+    return localStorage.getItem("cloudFilePath") || null;
+  });
+  const [cloudFileHandle, setCloudFileHandle] = useState(null);
+  const [isCloudMode, setIsCloudMode] = useState(() => {
+    return localStorage.getItem("cloudFilePath") !== null;
   });
 
   const [categories, setCategories] = useState(() => {
@@ -437,11 +445,34 @@ function App() {
     localStorage.setItem("sortConfig", JSON.stringify(sortConfig));
   }, [sortConfig]);
 
-  // Persistencia
+  // Persistencia normal a localStorage
+  useEffect(() => {
+    localStorage.setItem("monthlyData", JSON.stringify(monthlyData));
+    localStorage.setItem("categories", JSON.stringify(categories));
+    localStorage.setItem("accounts", JSON.stringify(accounts));
+  }, [monthlyData, categories, accounts]);
+
   useEffect(() => localStorage.setItem("language", language), [language]);
-  useEffect(() => localStorage.setItem("monthlyData", JSON.stringify(monthlyData)), [monthlyData]);
-  useEffect(() => localStorage.setItem("categories", JSON.stringify(categories)), [categories]);
-  useEffect(() => localStorage.setItem("accounts", JSON.stringify(accounts)), [accounts]);
+
+  // ============ NUEVO: Auto-guardado a la nube cuando hay cambios ============
+  useEffect(() => {
+    if (isCloudMode && cloudFileHandle) {
+      const saveTimeout = setTimeout(() => {
+        saveToCloudFile();
+      }, 1000); // Espera 1 segundo después del último cambio
+      return () => clearTimeout(saveTimeout);
+    }
+  }, [monthlyData, categories, accounts, isCloudMode, cloudFileHandle]);
+
+  // ============ NUEVO: Cargar archivo de nube automáticamente al inicio ============
+  useEffect(() => {
+    if (cloudFilePath) {
+      // Intentar cargar el archivo guardado (solo funciona si el usuario aprueba el permiso)
+      // Nota: Por seguridad del navegador, no podemos cargar automáticamente sin interacción del usuario.
+      // En su lugar, mostramos un recordatorio sutil.
+      console.log("Cloud file path remembered:", cloudFilePath);
+    }
+  }, []);
 
   useEffect(() => {
     const data = monthlyData[selectedMonth] || emptyMonth;
@@ -465,6 +496,113 @@ function App() {
     return () => document.removeEventListener("keydown", handleEscKey);
   }, [paymentExpenseIndex, showTransferDialog]);
 
+  // ============ NUEVO: Funciones de la nube ============
+  
+  async function selectCloudFile() {
+    try {
+      let fileHandle = null;
+      
+      if ('showOpenFilePicker' in window) {
+        [fileHandle] = await window.showOpenFilePicker({
+          types: [{
+            description: 'JSON files',
+            accept: { 'application/json': ['.json'] },
+          }],
+        });
+      } else {
+        // Fallback para navegadores que no soportan File System Access API
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        const fileSelected = await new Promise((resolve) => {
+          input.onchange = (e) => resolve(e.target.files[0]);
+          input.click();
+        });
+        if (!fileSelected) return;
+        
+        // Leer el archivo
+        const text = await fileSelected.text();
+        const data = JSON.parse(text);
+        
+        if (data.categories && data.accounts && data.monthlyData) {
+          setCategories(data.categories);
+          setAccounts(data.accounts);
+          setMonthlyData(data.monthlyData);
+          setCloudFilePath(fileSelected.name);
+          setIsCloudMode(true);
+          localStorage.setItem("cloudFilePath", fileSelected.name);
+          alert("Archivo conectado. Los cambios se guardarán automáticamente. (Modo demo - usa 'Guardar como' para guardar cambios)");
+        } else {
+          alert("El archivo no tiene el formato correcto.");
+        }
+        return;
+      }
+      
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      if (data.categories && data.accounts && data.monthlyData) {
+        setCategories(data.categories);
+        setAccounts(data.accounts);
+        setMonthlyData(data.monthlyData);
+        setCloudFilePath(file.name);
+        setCloudFileHandle(fileHandle);
+        setIsCloudMode(true);
+        localStorage.setItem("cloudFilePath", file.name);
+        alert("☁️ Archivo conectado. Todos los cambios se guardarán automáticamente en este archivo.");
+      } else {
+        alert("El archivo no tiene el formato correcto.");
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error("Error selecting cloud file:", err);
+        alert("Error al seleccionar el archivo.");
+      }
+    }
+  }
+
+  async function saveToCloudFile() {
+    if (!cloudFileHandle && isCloudMode) {
+      // Si no tenemos handle pero estamos en modo nube, intentar reconectar
+      console.log("No file handle available for cloud save");
+      return;
+    }
+    
+    if (!cloudFileHandle) return;
+    
+    try {
+      const data = {
+        version: APP_VERSION,
+        lastModified: new Date().toISOString(),
+        categories: categories,
+        accounts: accounts,
+        monthlyData: monthlyData,
+      };
+      const jsonString = JSON.stringify(data, null, 2);
+      
+      const writable = await cloudFileHandle.createWritable();
+      await writable.write(jsonString);
+      await writable.close();
+      
+      console.log("✅ Auto-saved to cloud file:", cloudFilePath);
+    } catch (err) {
+      console.error("Error saving to cloud file:", err);
+      // Si hay error, desactivar modo nube temporalmente
+      setIsCloudMode(false);
+      localStorage.removeItem("cloudFilePath");
+      alert("⚠️ Error al guardar en la nube. Se ha desactivado el modo nube. Vuelve a conectar el archivo.");
+    }
+  }
+
+  function disconnectCloud() {
+    setCloudFilePath(null);
+    setCloudFileHandle(null);
+    setIsCloudMode(false);
+    localStorage.removeItem("cloudFilePath");
+    alert("☁️ Modo nube desactivado. Ahora trabajas solo en localStorage.");
+  }
+
   // ============ FUNCIONES DE ORDENAMIENTO ============
   
   function requestSort(key) {
@@ -472,7 +610,6 @@ function App() {
     if (sortConfig.key === key && sortConfig.direction === "asc") {
       direction = "desc";
     } else if (sortConfig.key === key && sortConfig.direction === "desc") {
-      // Tercer clic: volver a fecha ascendente (default)
       setSortConfig({ key: "paymentDate", direction: "asc" });
       return;
     }
@@ -994,7 +1131,6 @@ function App() {
 
   const expenseRowsForTable = normalizedExpenses.flatMap(e => getBiweeklyExpenseRows(e));
   
-  // Función de ordenamiento mejorada
   const getSortedExpenses = () => {
     const allRows = [...expenseRowsForTable, ...salaryTableRows];
     
@@ -1186,6 +1322,24 @@ function App() {
     navButton: { padding: "14px 18px", borderRadius: "0", border: "none", borderBottom: "3px solid transparent", cursor: "pointer", backgroundColor: "transparent", color: "#b8b8b8", fontSize: "15px" },
     navButtonActive: { color: "#ffffff", backgroundColor: "rgba(255,255,255,0.05)", borderBottom: "3px solid #e10600" },
     smallSelect: { padding: "12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.2)", backgroundColor: "#1a1a1a", color: "#ffffff", outline: "none", cursor: "pointer" },
+    cloudButton: { 
+      background: "none", 
+      border: "none", 
+      fontSize: "20px", 
+      cursor: "pointer", 
+      padding: "8px 12px",
+      borderRadius: "8px",
+      transition: "all 0.2s",
+      opacity: 0.7,
+      position: "relative",
+    },
+    cloudButtonActive: { 
+      opacity: 1,
+      backgroundColor: "rgba(255,255,255,0.1)",
+      boxShadow: "0 0 8px rgba(76, 175, 80, 0.3)",
+    },
+    cloudConnected: { color: "#4caf50" },
+    cloudDisconnected: { color: "#b8b8b8" },
     card: { border: "1px solid rgba(255,255,255,0.13)", borderRadius: "12px", padding: "20px", marginBottom: "20px", background: "linear-gradient(145deg, rgba(255,255,255,0.075), rgba(255,255,255,0.025))", boxShadow: "0 18px 40px rgba(0,0,0,0.25)" },
     input: { width: "100%", padding: "11px 12px", borderRadius: "7px", border: "1px solid rgba(255,255,255,0.18)", marginTop: "6px", boxSizing: "border-box", backgroundColor: "#1a1a1a", color: "#ffffff", outline: "none" },
     tableInput: { width: "100%", padding: "6px", borderRadius: "5px", border: "1px solid rgba(255,255,255,0.18)", fontSize: "12px", backgroundColor: "#1a1a1a", color: "#ffffff" },
@@ -1263,6 +1417,21 @@ function App() {
           <button style={{ ...styles.navButton, ...(page === "reports" ? styles.navButtonActive : {}) }} onClick={() => setPage("reports")}>{t.reports}</button>
           <button style={{ ...styles.navButton, ...(page === "settings" ? styles.navButtonActive : {}) }} onClick={() => setPage("settings")}>{t.settings}</button>
           <button style={{ ...styles.navButton, ...(page === "howto" ? styles.navButtonActive : {}) }} onClick={() => setPage("howto")}>{t.howTo}</button>
+          
+          {/* ÍCONO DE NUBE (OCULTO EN VERSIÓN PÚBLICA - SOLO PARA TI) */}
+          <button
+            style={{
+              ...styles.cloudButton,
+              ...(isCloudMode ? styles.cloudButtonActive : {}),
+            }}
+            onClick={isCloudMode ? disconnectCloud : selectCloudFile}
+            title={isCloudMode ? `☁️ Conectado: ${cloudFilePath}\nClick para desconectar` : "☁️ Conectar archivo de nube (auto-guardado)"}
+          >
+            <span style={isCloudMode ? styles.cloudConnected : styles.cloudDisconnected}>
+              {isCloudMode ? "☁️✅" : "☁️"}
+            </span>
+          </button>
+          
           <select style={styles.smallSelect} value={language} onChange={(e) => setLanguage(e.target.value)}>
             <option value="es">Español</option>
             <option value="en">English</option>

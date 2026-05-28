@@ -7,7 +7,7 @@ const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
 
 const APP_NAME = "My Economy";
 const APP_SUBTITLE = "Take control of your money.";
-const APP_VERSION = "v1.4.2";
+const APP_VERSION = "v1.5.0";
 const APP_DEVELOPER = "Altura IT Solutions";
 const INCOME_CATEGORY = "Ingresos";
 
@@ -41,6 +41,7 @@ const translations = {
     monthly: "Mensual",
     weekly: "Semanal",
     biweekly: "Bisemanal",
+    twiceMonthly: "Dos veces al mes",
     once: "Una vez",
     paymentDate: "Fecha de pago",
     sortOriginal: "Orden original",
@@ -100,6 +101,12 @@ const translations = {
     downloadGuide: "Descargar instructivo PDF",
     monthlyStatement: "Reporte mensual",
     userGuide: "Instructivo de uso",
+    exportData: "Exportar datos",
+    importData: "Importar datos",
+    importSuccess: "Datos importados correctamente",
+    importError: "Error al importar datos",
+    confirmOverwrite: "Los datos existentes serán sobrescritos. ¿Continuar?",
+    backup: "Respaldo",
   },
   en: {
     dashboard: "Dashboard",
@@ -130,6 +137,7 @@ const translations = {
     monthly: "Monthly",
     weekly: "Weekly",
     biweekly: "Biweekly",
+    twiceMonthly: "Twice a month",
     once: "One time",
     paymentDate: "Payment date",
     sortOriginal: "Original order",
@@ -189,6 +197,12 @@ const translations = {
     downloadGuide: "Download user guide PDF",
     monthlyStatement: "Monthly statement",
     userGuide: "User guide",
+    exportData: "Export data",
+    importData: "Import data",
+    importSuccess: "Data imported successfully",
+    importError: "Error importing data",
+    confirmOverwrite: "Existing data will be overwritten. Continue?",
+    backup: "Backup",
   },
   fr: {
     dashboard: "Tableau de bord",
@@ -219,6 +233,7 @@ const translations = {
     monthly: "Mensuel",
     weekly: "Hebdomadaire",
     biweekly: "Aux deux semaines",
+    twiceMonthly: "Deux fois par mois",
     once: "Une fois",
     paymentDate: "Date de paiement",
     sortOriginal: "Ordre original",
@@ -278,6 +293,12 @@ const translations = {
     downloadGuide: "Télécharger guide PDF",
     monthlyStatement: "Rapport mensuel",
     userGuide: "Guide d’utilisation",
+    exportData: "Exporter les données",
+    importData: "Importer les données",
+    importSuccess: "Données importées avec succès",
+    importError: "Erreur lors de l'importation",
+    confirmOverwrite: "Les données existantes seront écrasées. Continuer ?",
+    backup: "Sauvegarde",
   },
 };
 
@@ -360,10 +381,10 @@ function App() {
 
   const [editingRowIndex, setEditingRowIndex] = useState(null);
   const [editingExpense, setEditingExpense] = useState(null);
-
   const [paymentExpenseIndex, setPaymentExpenseIndex] = useState(null);
   const [newPayment, setNewPayment] = useState({ date: "", amount: "", note: "" });
 
+  // Persistencia
   useEffect(() => localStorage.setItem("language", language), [language]);
   useEffect(() => localStorage.setItem("monthlyData", JSON.stringify(monthlyData)), [monthlyData]);
   useEffect(() => localStorage.setItem("categories", JSON.stringify(categories)), [categories]);
@@ -376,10 +397,68 @@ function App() {
     setIncomeDate(data.incomeDate || "");
   }, [selectedMonth, monthlyData]);
 
+  // ============ FUNCIONES DE EXPORTACIÓN/IMPORTACIÓN ============
+  
+  function exportData() {
+    const exportObj = {
+      version: APP_VERSION,
+      exportDate: new Date().toISOString(),
+      categories: categories,
+      accounts: accounts,
+      monthlyData: monthlyData,
+    };
+    
+    const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `my-economy-backup-${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function importData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedData = JSON.parse(e.target.result);
+        
+        if (!importedData.categories || !importedData.accounts || !importedData.monthlyData) {
+          alert(t.importError);
+          return;
+        }
+
+        if (Object.keys(monthlyData).length > 0) {
+          if (!confirm(t.confirmOverwrite)) {
+            return;
+          }
+        }
+
+        setCategories(importedData.categories);
+        setAccounts(importedData.accounts);
+        setMonthlyData(importedData.monthlyData);
+        alert(t.importSuccess);
+      } catch (error) {
+        console.error("Error importing data:", error);
+        alert(t.importError);
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  }
+
+  // ============ FUNCIONES AUXILIARES ============
+
   function normalizeFrequency(value) {
     if (value === "Mensual" || value === "Monthly" || value === "Mensuel") return "monthly";
     if (value === "Semanal" || value === "Weekly" || value === "Hebdomadaire") return "weekly";
     if (value === "Bisemanal" || value === "Bisemanual" || value === "Biweekly" || value === "Aux deux semaines") return "biweekly";
+    if (value === "Dos veces al mes" || value === "Twice a month" || value === "Deux fois par mois") return "biweekly";
     if (value === "Una vez" || value === "One time" || value === "Une fois") return "once";
     return value || "monthly";
   }
@@ -428,8 +507,31 @@ function App() {
     return expense?.isVirtualSalary === true;
   }
 
+  function isSplitExpenseItem(expense) {
+    return expense?.isVirtualSplitExpense === true;
+  }
+
   function isIncomingItem(expense) {
     return isIncomeItem(expense) || isSalaryItem(expense);
+  }
+
+  function sortPaymentsByDate(payments) {
+    return [...(payments || [])].sort((a, b) => {
+      if (!a.date && !b.date) return 0;
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return new Date(a.date + "T00:00:00") - new Date(b.date + "T00:00:00");
+    });
+  }
+
+  function addDays(date, days) {
+    const newDate = new Date(date);
+    newDate.setDate(newDate.getDate() + days);
+    return newDate;
+  }
+
+  function formatDateForInput(date) {
+    return date.toISOString().slice(0, 10);
   }
 
   function normalizeExpense(expense) {
@@ -437,7 +539,7 @@ function App() {
       ...expense,
       plannedAmount: Number(expense?.plannedAmount ?? 0),
       realAmount: Number(expense?.realAmount ?? 0),
-      payments: Array.isArray(expense?.payments) ? expense.payments : [],
+      payments: sortPaymentsByDate(Array.isArray(expense?.payments) ? expense.payments : []),
       frequency: normalizeFrequency(expense?.frequency),
       paymentDay: expense?.paymentDay || "",
       account: expense?.account || accounts[0] || "",
@@ -453,6 +555,11 @@ function App() {
 
   function getEffectiveReal(expense) {
     if (isIncomingItem(expense)) return Number(expense.plannedAmount || 0);
+    if (isSplitExpenseItem(expense)) {
+      const paymentsForDate = (expense.payments || []).filter((payment) => payment.date === expense.paymentDay);
+      const paymentsTotalForDate = paymentsForDate.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+      return paymentsTotalForDate > 0 ? paymentsTotalForDate : null;
+    }
     const normalized = normalizeExpense(expense);
     const paymentsTotal = getPaymentsTotal(normalized);
     return paymentsTotal > 0 ? paymentsTotal : null;
@@ -468,14 +575,11 @@ function App() {
     if (isIncomingItem(expense)) {
       return { backgroundColor: "rgba(31, 122, 31, 0.8)", color: "#ffffff", fontWeight: "bold" };
     }
-
     const planned = Number(expense.plannedAmount || 0);
     const real = getEffectiveReal(expense);
-
     if (real === null) {
       return { backgroundColor: "rgba(255,255,255,0.06)", color: "#b8b8b8", fontWeight: "bold" };
     }
-
     if (real < planned) return getStatusStyle(1);
     if (real > planned) return getStatusStyle(-1);
     return getStatusStyle(0);
@@ -507,14 +611,11 @@ function App() {
 
   function addExpense(event) {
     event.preventDefault();
-
     if (!newExpense.name || !newExpense.plannedAmount || !newExpense.category) {
       alert(t.completeFields);
       return;
     }
-
     const isIncome = newExpense.category === INCOME_CATEGORY;
-
     const expenseToSave = {
       ...newExpense,
       plannedAmount: Number(newExpense.plannedAmount),
@@ -523,7 +624,6 @@ function App() {
       frequency: normalizeFrequency(newExpense.frequency),
       expenseType: isIncome ? "sporadic" : normalizeExpenseType(newExpense.expenseType),
     };
-
     saveMonthData({
       ...currentMonthData,
       income,
@@ -531,7 +631,6 @@ function App() {
       incomeDate,
       expenses: [...(currentMonthData.expenses || []), expenseToSave],
     });
-
     setNewExpense({
       name: "",
       plannedAmount: "",
@@ -560,9 +659,7 @@ function App() {
       alert(t.completeFields);
       return;
     }
-
     const isIncome = editingExpense.category === INCOME_CATEGORY;
-
     const updatedExpense = {
       ...editingExpense,
       plannedAmount: Number(editingExpense.plannedAmount),
@@ -571,11 +668,9 @@ function App() {
       frequency: normalizeFrequency(editingExpense.frequency),
       expenseType: isIncome ? "sporadic" : normalizeExpenseType(editingExpense.expenseType),
     };
-
     const updatedExpenses = currentMonthData.expenses.map((expense, expenseIndex) =>
       expenseIndex === index ? updatedExpense : expense
     );
-
     saveMonthData({ ...currentMonthData, income, incomeFrequency, incomeDate, expenses: updatedExpenses });
     setEditingRowIndex(null);
     setEditingExpense(null);
@@ -597,21 +692,21 @@ function App() {
   function addPayment(event) {
     event.preventDefault();
     if (paymentExpenseIndex === null) return;
-
     if (!newPayment.date || !newPayment.amount) {
       alert(t.completePayment);
       return;
     }
-
     const updatedExpenses = currentMonthData.expenses.map((expense, index) => {
       if (index !== paymentExpenseIndex) return expense;
       const normalized = normalizeExpense(expense);
       return {
         ...normalized,
-        payments: [...normalized.payments, { date: newPayment.date, amount: Number(newPayment.amount), note: newPayment.note }],
+        payments: sortPaymentsByDate([
+          ...normalized.payments,
+          { date: newPayment.date, amount: Number(newPayment.amount), note: newPayment.note },
+        ]),
       };
     });
-
     saveMonthData({ ...currentMonthData, income, incomeFrequency, incomeDate, expenses: updatedExpenses });
     setNewPayment({ date: "", amount: "", note: "" });
   }
@@ -622,7 +717,6 @@ function App() {
       const normalized = normalizeExpense(expense);
       return { ...normalized, payments: normalized.payments.filter((_, index) => index !== paymentIndex) };
     });
-
     saveMonthData({ ...currentMonthData, income, incomeFrequency, incomeDate, expenses: updatedExpenses });
   }
 
@@ -632,7 +726,6 @@ function App() {
 
   function moveDateToSelectedMonth(dateString, targetMonth) {
     if (!dateString || !targetMonth) return "";
-
     const [, , originalDayString] = dateString.split("-");
     const [targetYearString, targetMonthString] = targetMonth.split("-");
     const targetYear = Number(targetYearString);
@@ -640,7 +733,6 @@ function App() {
     const originalDay = Number(originalDayString);
     const lastDay = getLastDayOfMonth(targetYear, targetMonthNumber);
     const finalDay = Math.min(originalDay, lastDay);
-
     return `${targetYearString}-${targetMonthString}-${String(finalDay).padStart(2, "0")}`;
   }
 
@@ -649,30 +741,24 @@ function App() {
       alert(t.monthExists);
       return;
     }
-
     const [year, month] = selectedMonth.split("-").map(Number);
     const previousDate = new Date(year, month - 2, 1);
     const previousMonth = previousDate.toISOString().slice(0, 7);
-
     let expensesToCopy = monthlyData[previousMonth]
       ? monthlyData[previousMonth].expenses.map((expense) => normalizeExpense(expense))
       : [];
-
     if (copyMode === "recurrent") {
       expensesToCopy = expensesToCopy.filter(
         (expense) => expense.expenseType === "recurrent" || isIncomeItem(expense)
       );
     }
-
     expensesToCopy = expensesToCopy.map((expense) => ({
       ...expense,
       realAmount: 0,
       payments: [],
       paymentDay: moveDateToSelectedMonth(expense.paymentDay, selectedMonth),
     }));
-
     const previousData = monthlyData[previousMonth];
-
     saveMonthData({
       income: previousData ? previousData.income : "",
       incomeFrequency: previousData ? previousData.incomeFrequency || "monthly" : "monthly",
@@ -683,11 +769,9 @@ function App() {
 
   function deleteMonth(monthToDelete) {
     if (!confirm(`${t.confirmDeleteMonth} ${monthToDelete}?`)) return;
-
     const updatedMonthlyData = { ...monthlyData };
     delete updatedMonthlyData[monthToDelete];
     setMonthlyData(updatedMonthlyData);
-
     if (selectedMonth === monthToDelete) setSelectedMonth(getCurrentMonth());
   }
 
@@ -708,7 +792,6 @@ function App() {
       alert(t.protectedCategory);
       return;
     }
-
     setCategories(categories.filter((category) => category !== categoryToDelete));
   }
 
@@ -728,6 +811,24 @@ function App() {
     setAccounts(accounts.filter((account) => account !== accountToDelete));
   }
 
+  function getBiweeklyExpenseRows(expense) {
+    if (isIncomingItem(expense) || normalizeFrequency(expense.frequency) !== "biweekly" || !expense.paymentDay) {
+      return [expense];
+    }
+    const firstDate = new Date(expense.paymentDay + "T00:00:00");
+    const secondDate = addDays(firstDate, 14);
+    const dates = [firstDate, secondDate];
+    return dates.map((date, occurrenceIndex) => ({
+      ...expense,
+      name: `${expense.name} ${occurrenceIndex + 1}`,
+      paymentDay: formatDateForInput(date),
+      plannedAmount: Number(expense.plannedAmount || 0) / 2,
+      originalPlannedAmount: Number(expense.plannedAmount || 0),
+      occurrenceIndex,
+      isVirtualSplitExpense: true,
+    }));
+  }
+
   const normalizedExpenses = (currentMonthData.expenses || []).map((expense, index) => ({
     ...normalizeExpense(expense),
     originalIndex: index,
@@ -741,6 +842,38 @@ function App() {
   const randomIncomeTotal = randomIncomeItems.reduce((sum, item) => sum + Number(item.plannedAmount || 0), 0);
   const numericIncome = Number(income || 0);
   const available = numericIncome + randomIncomeTotal - totalPlanned;
+
+  function getSalaryOccurrences() {
+    if (!income || !incomeDate) return [];
+    const [yearString, monthString] = selectedMonth.split("-");
+    const year = Number(yearString);
+    const month = Number(monthString);
+    const startOfMonth = new Date(year, month - 1, 1);
+    const endOfMonth = new Date(year, month, 0);
+    const firstDate = new Date(incomeDate + "T00:00:00");
+    const interval = incomeFrequency === "weekly" ? 7 : incomeFrequency === "biweekly" ? 14 : 0;
+    let dates = [];
+    if (incomeFrequency === "monthly") {
+      const adjustedDate = moveDateToSelectedMonth(incomeDate, selectedMonth);
+      dates = adjustedDate ? [new Date(adjustedDate + "T00:00:00")] : [];
+    } else {
+      const current = new Date(firstDate);
+      while (current > startOfMonth) {
+        current.setDate(current.getDate() - interval);
+      }
+      while (current <= endOfMonth) {
+        if (current >= startOfMonth) dates.push(new Date(current));
+        current.setDate(current.getDate() + interval);
+      }
+    }
+    const amountPerOccurrence = dates.length > 0 ? numericIncome / dates.length : numericIncome;
+    return dates.map((date, index) => ({
+      name: `${t.salary} ${dates.length > 1 ? index + 1 : ""}`.trim(),
+      amount: amountPerOccurrence,
+      date,
+      type: "salary",
+    }));
+  }
 
   const salaryTableRows = getSalaryOccurrences().map((salary, index) => ({
     name: salary.name,
@@ -756,35 +889,29 @@ function App() {
     isVirtualSalary: true,
   }));
 
-  const displayedExpenses = [...normalizedExpenses, ...salaryTableRows].sort((a, b) => {
-    if (!sortByDate) return a.originalIndex - b.originalIndex;
+  const expenseRowsForTable = normalizedExpenses.flatMap((expense) => getBiweeklyExpenseRows(expense));
 
+  const displayedExpenses = [...expenseRowsForTable, ...salaryTableRows].sort((a, b) => {
+    if (!sortByDate) return a.originalIndex - b.originalIndex;
     if (!a.paymentDay && !b.paymentDay) return a.originalIndex - b.originalIndex;
     if (!a.paymentDay) return 1;
     if (!b.paymentDay) return -1;
-
     const dateA = new Date(a.paymentDay + "T00:00:00");
     const dateB = new Date(b.paymentDay + "T00:00:00");
     const dateDifference = dateA - dateB;
-
     if (dateDifference === 0) return a.originalIndex - b.originalIndex;
-
     return sortByDate === "asc" ? dateDifference : -dateDifference;
   });
 
   function groupExpensesBy(fieldName) {
     const totals = {};
-
     expenseItems.forEach((expense) => {
       const key = expense[fieldName] || "Sin definir";
       const value = Number(getEffectiveReal(expense) || 0);
-
       if (!totals[key]) totals[key] = { name: key, amount: 0, count: 0 };
-
       totals[key].amount += value;
       totals[key].count += 1;
     });
-
     return Object.values(totals)
       .map((item) => ({ ...item, amount: Number(item.amount.toFixed(2)) }))
       .sort((a, b) => b.amount - a.amount);
@@ -793,11 +920,9 @@ function App() {
   const categoryReportData = groupExpensesBy("category");
   const accountReportData = groupExpensesBy("account");
 
-  const selectedPaymentExpense =
-    paymentExpenseIndex !== null && currentMonthData.expenses?.[paymentExpenseIndex]
-      ? normalizeExpense(currentMonthData.expenses[paymentExpenseIndex])
-      : null;
-
+  const selectedPaymentExpense = paymentExpenseIndex !== null && currentMonthData.expenses?.[paymentExpenseIndex]
+    ? normalizeExpense(currentMonthData.expenses[paymentExpenseIndex])
+    : null;
   const selectedPaymentReal = selectedPaymentExpense ? Number(getEffectiveReal(selectedPaymentExpense) || 0) : 0;
   const selectedPaymentDifference = selectedPaymentExpense ? Number(selectedPaymentExpense.plannedAmount || 0) - selectedPaymentReal : 0;
 
@@ -814,48 +939,10 @@ function App() {
     return today.toLocaleDateString(locale, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   }
 
-  function getSalaryOccurrences() {
-    if (!income || !incomeDate) return [];
-
-    const [yearString, monthString] = selectedMonth.split("-");
-    const year = Number(yearString);
-    const month = Number(monthString);
-    const startOfMonth = new Date(year, month - 1, 1);
-    const endOfMonth = new Date(year, month, 0);
-    const firstDate = new Date(incomeDate + "T00:00:00");
-    const interval = incomeFrequency === "weekly" ? 7 : incomeFrequency === "biweekly" ? 14 : 0;
-
-    let dates = [];
-
-    if (incomeFrequency === "monthly") {
-      const adjustedDate = moveDateToSelectedMonth(incomeDate, selectedMonth);
-      dates = adjustedDate ? [new Date(adjustedDate + "T00:00:00")] : [];
-    } else {
-      const current = new Date(firstDate);
-      while (current > startOfMonth) {
-        current.setDate(current.getDate() - interval);
-      }
-      while (current <= endOfMonth) {
-        if (current >= startOfMonth) dates.push(new Date(current));
-        current.setDate(current.getDate() + interval);
-      }
-    }
-
-    const amountPerOccurrence = dates.length > 0 ? numericIncome / dates.length : numericIncome;
-
-    return dates.map((date, index) => ({
-      name: `${t.salary} ${dates.length > 1 ? index + 1 : ""}`.trim(),
-      amount: amountPerOccurrence,
-      date,
-      type: "salary",
-    }));
-  }
-
   function getUpcomingMovements() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    const expenseMovements = normalizedExpenses
+    const expenseMovements = expenseRowsForTable
       .filter((expense) => expense.paymentDay)
       .map((expense) => {
         const date = new Date(expense.paymentDay + "T00:00:00");
@@ -868,12 +955,10 @@ function App() {
           type: isIncomeItem(expense) ? "income" : "expense",
         };
       });
-
     const salaryMovements = getSalaryOccurrences().map((movement) => {
       const daysLeft = Math.ceil((movement.date - today) / (1000 * 60 * 60 * 24));
       return { ...movement, daysLeft };
     });
-
     return [...expenseMovements, ...salaryMovements]
       .filter((movement) => movement.daysLeft >= 0)
       .sort((a, b) => a.date - b.date)
@@ -887,8 +972,7 @@ function App() {
     const generatedAt = new Date().toLocaleDateString(
       language === "en" ? "en-US" : language === "fr" ? "fr-CA" : "es-ES"
     );
-
-    const movementsForPdf = [...salaryTableRows, ...normalizedExpenses]
+    const movementsForPdf = [...salaryTableRows, ...expenseRowsForTable]
       .sort((a, b) => {
         if (!a.paymentDay && !b.paymentDay) return a.originalIndex - b.originalIndex;
         if (!a.paymentDay) return 1;
@@ -908,7 +992,6 @@ function App() {
           incoming ? `+$${Number(item.plannedAmount || 0).toFixed(2)}` : realValue === null ? t.pending : `$${Number(realValue).toFixed(2)}`,
         ];
       });
-
     doc.setFillColor(20, 20, 20);
     doc.rect(0, 0, 216, 32, "F");
     doc.setTextColor(255, 255, 255);
@@ -919,11 +1002,9 @@ function App() {
     doc.setTextColor(120, 120, 120);
     doc.setFontSize(9);
     doc.text(`${APP_DEVELOPER} · ${generatedAt}`, 14, 28);
-
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(13);
     doc.text(t.monthlySummary, 14, 44);
-
     autoTable(doc, {
       startY: 50,
       theme: "grid",
@@ -938,10 +1019,8 @@ function App() {
       headStyles: { fillColor: [225, 6, 0], textColor: [255, 255, 255] },
       styles: { fontSize: 9 },
     });
-
     doc.setFontSize(13);
     doc.text(t.expensesMonth, 14, doc.lastAutoTable.finalY + 14);
-
     autoTable(doc, {
       startY: doc.lastAutoTable.finalY + 20,
       theme: "striped",
@@ -957,7 +1036,6 @@ function App() {
         }
       },
     });
-
     const pageCount = doc.internal.getNumberOfPages();
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
       doc.setPage(pageNumber);
@@ -965,26 +1043,20 @@ function App() {
       doc.setTextColor(120, 120, 120);
       doc.text(`${APP_NAME} ${APP_VERSION} · ${pageNumber}/${pageCount}`, 14, 270);
     }
-
     doc.save(`my-economy-statement-${selectedMonth}.pdf`);
   }
 
   function generateUserGuidePdf() {
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
     let y = 18;
-
     function title(text) {
       doc.setFontSize(18);
       doc.setTextColor(225, 6, 0);
       doc.text(text, 14, y);
       y += 10;
     }
-
     function section(heading, body) {
-      if (y > 240) {
-        doc.addPage();
-        y = 18;
-      }
+      if (y > 240) { doc.addPage(); y = 18; }
       doc.setFontSize(13);
       doc.setTextColor(0, 0, 0);
       doc.text(heading, 14, y);
@@ -995,7 +1067,6 @@ function App() {
       doc.text(lines, 14, y);
       y += lines.length * 5 + 7;
     }
-
     doc.setFillColor(20, 20, 20);
     doc.rect(0, 0, 216, 34, "F");
     doc.setTextColor(255, 255, 255);
@@ -1004,47 +1075,23 @@ function App() {
     doc.setFontSize(11);
     doc.text(t.userGuide, 14, 25);
     y = 46;
-
     title(t.userGuide);
-    section(
-      "1. Dashboard",
-      "The dashboard is the main area of the application. It shows the selected month, monthly income, upcoming movements, the form to add new movements, and the full monthly table."
-    );
-    section(
-      "2. Monthly income",
-      "Monthly income is the base salary amount for the selected month. You can define whether it is received monthly, biweekly, or weekly, and select the first income date. Salary entries are displayed in the table as green virtual rows, but they are not duplicated in random income."
-    );
-    section(
-      "3. Random income",
-      "To add extra income, create a movement using the protected category Ingresos. These entries appear in green, increase the available balance, and are not calculated as expenses."
-    );
-    section(
-      "4. Expenses",
-      "Expenses can be recurrent or sporadic. Planned value is the expected amount. Real value appears only when payments are registered through Admin. The difference is informational and appears in the payment window."
-    );
-    section(
-      "5. Partial payments",
-      "Use Admin to add one or more payments to the same expense. This is useful for expenses such as gas, groceries, or any cost paid in multiple parts during the month."
-    );
-    section(
-      "6. Date sorting",
-      "Click the payment date column to sort movements by date. The first click sorts ascending, the second descending, and the third returns to the original entry order."
-    );
-    section(
-      "7. Reports",
-      "Reports summarize expenses by category and by account. Income entries are excluded from expense reports so financial totals remain clean."
-    );
-    section(
-      "8. Data storage",
-      "This beta version stores information in the browser localStorage. Data is local to the browser and device unless future backup, import/export, or cloud synchronization features are added."
-    );
-
+    section("1. Dashboard", "The dashboard is the main area of the application. It shows the selected month, monthly income, upcoming movements, the form to add new movements, and the full monthly table.");
+    section("2. Monthly income", "Monthly income is the base salary amount for the selected month. You can define whether it is received monthly, biweekly, or weekly, and select the first income date. Salary entries are displayed in the table as green virtual rows, but they are not duplicated in random income.");
+    section("3. Random income", "To add extra income, create a movement using the protected category Ingresos. These entries appear in green, increase the available balance, and are not calculated as expenses.");
+    section("4. Expenses", "Expenses can be recurrent or sporadic. Planned value is the expected amount. Real value appears only when payments are registered through Admin. The difference is informational and appears in the payment window.");
+    section("5. Partial payments", "Use Admin to add one or more payments to the same expense. This is useful for expenses such as gas, groceries, or any cost paid in multiple parts during the month.");
+    section("6. Date sorting", "Click the payment date column to sort movements by date. The first click sorts ascending, the second descending, and the third returns to the original entry order.");
+    section("7. Reports", "Reports summarize expenses by category and by account. Income entries are excluded from expense reports so financial totals remain clean.");
+    section("8. Data storage", "This version stores information in the browser localStorage. Data is local to the browser and device unless future backup, import/export, or cloud synchronization features are added.");
+    section("9. Export/Import data", "You can export your data to a JSON file for backup or to transfer between devices. Use the import button to restore your data from a backup file.");
     doc.setFontSize(8);
     doc.setTextColor(120, 120, 120);
     doc.text(`${APP_DEVELOPER} · ${APP_NAME} ${APP_VERSION}`, 14, 270);
     doc.save("my-economy-user-guide.pdf");
   }
 
+  // Estilos
   const styles = {
     page: {
       minHeight: "100vh",
@@ -1065,6 +1112,8 @@ function App() {
       position: "sticky",
       top: 0,
       zIndex: 50,
+      flexWrap: "wrap",
+      gap: "16px",
     },
     brand: { display: "flex", alignItems: "center", gap: "16px" },
     logo: { width: "68px", height: "68px", objectFit: "contain" },
@@ -1127,97 +1176,72 @@ function App() {
       backgroundColor: "rgba(255,255,255,0.11)",
       color: "#ffffff",
     },
+    buttonPrimary: {
+      padding: "10px 14px",
+      borderRadius: "7px",
+      border: "none",
+      cursor: "pointer",
+      backgroundColor: "#e10600",
+      color: "#ffffff",
+      fontWeight: 800,
+    },
     tableWrapper: { overflowX: "auto" },
     table: { width: "100%", borderCollapse: "collapse", marginTop: "20px", fontSize: "12px", backgroundColor: "rgba(0,0,0,0.16)" },
-    th: {
-      padding: "10px",
-      border: "1px solid rgba(255,255,255,0.13)",
-      whiteSpace: "nowrap",
-      color: "#ffffff",
-      backgroundColor: "rgba(255,255,255,0.04)",
-    },
-    td: {
-      padding: "9px",
-      border: "1px solid rgba(255,255,255,0.10)",
-      textAlign: "center",
-      fontSize: "12px",
-      whiteSpace: "nowrap",
-      color: "#e9e9e9",
-    },
-    listItem: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      border: "1px solid rgba(255,255,255,0.13)",
-      borderRadius: "8px",
-      padding: "10px",
-      marginBottom: "8px",
-      backgroundColor: "rgba(255,255,255,0.04)",
-    },
-    modalOverlay: {
-      position: "fixed",
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: "rgba(0, 0, 0, 0.72)",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      zIndex: 1000,
-      padding: "20px",
-      backdropFilter: "blur(8px)",
-    },
-    modal: {
-      background: "linear-gradient(145deg, rgba(31,31,31,0.98), rgba(9,11,13,0.98))",
-      border: "1px solid rgba(255,255,255,0.16)",
-      borderRadius: "14px",
-      padding: "25px",
-      width: "90%",
-      maxWidth: "1000px",
-      maxHeight: "85vh",
-      overflowY: "auto",
-      boxShadow: "0 25px 60px rgba(0,0,0,0.45)",
-    },
-    footer: {
-      marginTop: "30px",
-      padding: "22px 0",
-      borderTop: "1px solid rgba(255,255,255,0.12)",
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr 1fr",
-      gap: "20px",
-      alignItems: "center",
-      color: "#a8a8a8",
-      fontSize: "14px",
-    },
+    th: { padding: "10px", border: "1px solid rgba(255,255,255,0.13)", whiteSpace: "nowrap", color: "#ffffff", backgroundColor: "rgba(255,255,255,0.04)" },
+    td: { padding: "9px", border: "1px solid rgba(255,255,255,0.10)", textAlign: "center", fontSize: "12px", whiteSpace: "nowrap", color: "#e9e9e9" },
+    listItem: { display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid rgba(255,255,255,0.13)", borderRadius: "8px", padding: "10px", marginBottom: "8px", backgroundColor: "rgba(255,255,255,0.04)" },
+    modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0, 0, 0, 0.72)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000, padding: "20px", backdropFilter: "blur(8px)" },
+    modal: { background: "linear-gradient(145deg, rgba(31,31,31,0.98), rgba(9,11,13,0.98))", border: "1px solid rgba(255,255,255,0.16)", borderRadius: "14px", padding: "25px", width: "90%", maxWidth: "1000px", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 25px 60px rgba(0,0,0,0.45)" },
+    footer: { marginTop: "30px", padding: "22px 0", borderTop: "1px solid rgba(255,255,255,0.12)", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "20px", alignItems: "center", color: "#a8a8a8", fontSize: "14px" },
     footerBrand: { display: "flex", alignItems: "center", gap: "14px" },
     footerLogo: { width: "52px", height: "52px", objectFit: "contain" },
     redText: { color: "#e10600", fontWeight: 700 },
+    dashboardTopWidgets: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "20px", marginBottom: "20px" },
+    formGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "15px", alignItems: "end" },
+    reportGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(350px, 1fr))", gap: "20px" },
+    howToSection: {
+      maxHeight: "600px",
+      overflowY: "auto",
+      paddingRight: "16px",
+    },
+    howToCard: {
+      background: "rgba(255,255,255,0.03)",
+      borderRadius: "10px",
+      padding: "16px",
+      marginBottom: "16px",
+      borderLeft: "3px solid #e10600",
+    },
+    howToTitle: {
+      fontSize: "18px",
+      fontWeight: "bold",
+      marginBottom: "10px",
+      color: "#e10600",
+    },
+    howToList: {
+      margin: "10px 0 0 20px",
+      lineHeight: "1.6",
+    },
+    howToNote: {
+      background: "rgba(225, 6, 0, 0.1)",
+      padding: "12px",
+      borderRadius: "8px",
+      marginTop: "16px",
+      border: "1px solid rgba(225, 6, 0, 0.3)",
+    },
   };
 
+  // Renderizar tablas de reportes
   function renderReportTable(data, labelColumn) {
     return (
-      <div className="table-wrapper" style={styles.tableWrapper}>
-        <table className="data-table" style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>{labelColumn}</th>
-              <th style={styles.th}>{t.items}</th>
-              <th style={styles.th}>{t.total}</th>
-            </tr>
-          </thead>
+      <div style={styles.tableWrapper}>
+        <table style={styles.table}>
+          <thead><tr><th style={styles.th}>{labelColumn}</th><th style={styles.th}>{t.items}</th><th style={styles.th}>{t.total}</th></tr></thead>
           <tbody>
             {data.length === 0 ? (
-              <tr>
-                <td style={styles.td} colSpan="3">{t.noData}</td>
-              </tr>
+              <tr><td style={styles.td} colSpan="3">{t.noData}</td></tr>
             ) : (
               data.map((item) => (
-                <tr key={item.name}>
-                  <td style={styles.td}>{item.name}</td>
-                  <td style={styles.td}>{item.count}</td>
-                  <td style={styles.td}>${item.amount.toFixed(2)}</td>
-                </tr>
+                <tr key={item.name}><td style={styles.td}>{item.name}</td><td style={styles.td}>{item.count}</td><td style={styles.td}>${item.amount.toFixed(2)}</td></tr>
               ))
             )}
           </tbody>
@@ -1226,374 +1250,541 @@ function App() {
     );
   }
 
-  function renderMonthWidget() {
-    return (
-      <div className="widget-card" style={styles.card}>
-        <h2>{t.month}</h2>
-        <input style={styles.input} type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
-        <div className="widget-buttons">
-          <button onClick={() => createNewMonth("all")} style={styles.button}>{t.createAll}</button>
-          <button onClick={() => createNewMonth("recurrent")} style={styles.button}>{t.createRecurring}</button>
-          <button
-            onClick={generateMonthlyPdf}
-            style={{
-              ...styles.button,
-              backgroundColor: "#e10600",
-              color: "#ffffff",
-              fontWeight: 800,
-              marginTop: "4px",
-            }}
-          >
-            {t.exportPdf}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  function renderSummaryWidget() {
-    return (
-      <div className="widget-card" style={styles.card}>
-        <h2>{t.monthlySummary}</h2>
-        <label>{t.monthlyIncome}</label>
-        <input style={styles.input} type="number" value={income} onChange={(e) => updateIncome(e.target.value)} />
-        <div className="form-grid" style={{ marginTop: "12px" }}>
-          <div>
-            <label>{t.incomeFrequency}</label>
-            <select style={styles.input} value={incomeFrequency} onChange={(e) => updateIncomeFrequency(e.target.value)}>
-              <option value="monthly">{t.monthly}</option>
-              <option value="biweekly">{t.biweekly}</option>
-              <option value="weekly">{t.weekly}</option>
-            </select>
-          </div>
-          <div>
-            <label>{t.incomeDate}</label>
-            <input style={styles.input} type="date" value={incomeDate} onChange={(e) => updateIncomeDate(e.target.value)} />
-          </div>
-        </div>
-        <div className="summary-widget-row"><span>{t.totalPlanned}</span><strong>${totalPlanned.toFixed(2)}</strong></div>
-        <div className="summary-widget-row"><span>{t.totalReal}</span><strong>${totalReal.toFixed(2)}</strong></div>
-        <div className="summary-widget-row"><span>{t.randomIncome}</span><strong>+${randomIncomeTotal.toFixed(2)}</strong></div>
-        <div className="summary-widget-row summary-widget-available"><span>{t.available}</span><strong>${available.toFixed(2)}</strong></div>
-      </div>
-    );
-  }
-
-  function renderUpcomingWidget() {
-    return (
-      <div className="widget-card" style={styles.card}>
-        <h2>{t.todayAndUpcoming}</h2>
-        <div className="today-box"><span>{t.currentDate}</span><strong>{getTodayLabel()}</strong></div>
-        <h3>{t.upcomingPayments}</h3>
-        <div className="upcoming-list">
-          {upcomingPayments.length === 0 ? (
-            <p>{t.noUpcomingPayments}</p>
-          ) : (
-            upcomingPayments.map((movement, index) => (
-              <div key={`${movement.name}-${index}`} className="upcoming-item">
-                <div>
-                  <strong>{movement.type === "income" || movement.type === "salary" ? "+ " : "- "}{movement.name}</strong>
-                  <p>{formatDisplayDate(movement.date.toISOString().slice(0, 10))} · {movement.daysLeft === 0 ? t.today : `${t.inDays} ${movement.daysLeft} ${t.days}`}</p>
-                </div>
-                <strong>{movement.type === "income" || movement.type === "salary" ? "+" : "-"}${Number(movement.amount || 0).toFixed(2)}</strong>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  function renderExpenseTable() {
-    return (
-      <div className="card" style={styles.card}>
-        <h2>{t.expensesMonth}</h2>
-        <div className="table-wrapper" style={styles.tableWrapper}>
-          <table className="data-table" style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>{t.name}</th>
-                <th style={styles.th}>{t.category}</th>
-                <th style={styles.th}>{t.type}</th>
-                <th style={styles.th}>{t.frequency}</th>
-                <th
-                  style={{
-                    ...styles.th,
-                    cursor: "pointer",
-                    userSelect: "none",
-                    backgroundColor: sortByDate ? "rgba(225, 6, 0, 0.22)" : "rgba(255,255,255,0.08)",
-                    borderBottom: sortByDate ? "2px solid #e10600" : styles.th.border,
-                  }}
-                  onClick={toggleDateSort}
-                  title={getDateSortTitle()}
-                >
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                    {t.paymentDate}
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        minWidth: "18px",
-                        height: "18px",
-                        borderRadius: "999px",
-                        backgroundColor: sortByDate ? "#e10600" : "rgba(255,255,255,0.14)",
-                        color: "#ffffff",
-                        fontSize: "10px",
-                        fontWeight: 800,
-                      }}
-                    >
-                      {getDateSortIcon()}
-                    </span>
-                  </span>
-                </th>
-                <th style={styles.th}>{t.account}</th>
-                <th style={styles.th}>{t.planned}</th>
-                <th style={styles.th}>{t.real}</th>
-                <th style={styles.th}>{t.payments}</th>
-                <th style={styles.th}>{t.action}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedExpenses.map((expense) => {
-                const index = expense.originalIndex;
-                const isEditing = editingRowIndex === index;
-                const activeExpense = isEditing ? editingExpense : expense;
-                const effectiveReal = getEffectiveReal(activeExpense);
-                const hasRealPayment = effectiveReal !== null;
-                const rowIsIncome = isIncomeItem(activeExpense);
-                const rowIsSalary = isSalaryItem(activeExpense);
-                const rowIsIncoming = isIncomingItem(activeExpense);
-
-                return (
-                  <tr
-                    key={index}
-                    onClick={() => {
-                      if (window.innerWidth <= 768 && !rowIsIncoming) openPayments(index);
-                    }}
-                    style={{ ...getRowStyle(activeExpense), cursor: window.innerWidth <= 768 && !rowIsIncoming ? "pointer" : "default" }}
-                  >
-                    <td style={styles.td}>{rowIsSalary ? expense.name : isEditing ? <input style={styles.tableInput} value={editingExpense.name} onChange={(e) => setEditingExpense({ ...editingExpense, name: e.target.value })} /> : expense.name}</td>
-                    <td style={styles.td}>{rowIsSalary ? expense.category : isEditing ? <select style={styles.tableInput} value={editingExpense.category} onChange={(e) => setEditingExpense({ ...editingExpense, category: e.target.value })}>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select> : expense.category}</td>
-                    <td style={styles.td}>{rowIsIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.expenseType} onChange={(e) => setEditingExpense({ ...editingExpense, expenseType: e.target.value })}><option value="recurrent">{t.recurrent}</option><option value="sporadic">{t.sporadic}</option></select> : getExpenseTypeLabel(expense.expenseType)}</td>
-                    <td style={styles.td}>{rowIsIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.frequency} onChange={(e) => setEditingExpense({ ...editingExpense, frequency: e.target.value })}><option value="monthly">{t.monthly}</option><option value="weekly">{t.weekly}</option><option value="biweekly">{t.biweekly}</option><option value="once">{t.once}</option></select> : getFrequencyLabel(expense.frequency)}</td>
-                    <td style={styles.td}>{rowIsSalary ? expense.paymentDay : isEditing ? <input style={styles.tableInput} type="date" value={editingExpense.paymentDay} onChange={(e) => setEditingExpense({ ...editingExpense, paymentDay: e.target.value })} /> : expense.paymentDay}</td>
-                    <td style={styles.td}>{rowIsSalary ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.account} onChange={(e) => setEditingExpense({ ...editingExpense, account: e.target.value })}>{accounts.map((account) => <option key={account} value={account}>{account}</option>)}</select> : expense.account}</td>
-                    <td style={styles.td}>{rowIsSalary ? `+$${Number(expense.plannedAmount).toFixed(2)}` : isEditing ? <input style={styles.tableInput} type="number" value={editingExpense.plannedAmount} onChange={(e) => setEditingExpense({ ...editingExpense, plannedAmount: e.target.value })} /> : `${rowIsIncome ? "+" : ""}$${Number(expense.plannedAmount).toFixed(2)}`}</td>
-                    <td style={{ ...styles.td, ...getRealCellStyle(activeExpense) }}>{rowIsIncoming ? `+$${Number(expense.plannedAmount).toFixed(2)}` : hasRealPayment ? `$${Number(effectiveReal).toFixed(2)}` : t.pending}</td>
-                    <td style={styles.td}>{rowIsIncoming ? "—" : <button onClick={(e) => { e.stopPropagation(); openPayments(index); }}>{t.managePayments}</button>}</td>
-                    <td style={styles.td}>
-                      {rowIsSalary ? (
-                        "—"
-                      ) : isEditing ? (
-                        <>
-                          <button onClick={(e) => { e.stopPropagation(); saveEditRow(index); }}>{t.save}</button>
-                          <button onClick={(e) => { e.stopPropagation(); cancelEditRow(); }} style={{ marginLeft: "5px" }}>{t.cancel}</button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={(e) => { e.stopPropagation(); startEditRow(index); }}>{t.edit}</button>
-                          <button onClick={(e) => { e.stopPropagation(); deleteExpense(index); }} style={{ marginLeft: "5px" }}>{t.delete}</button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="page" style={styles.page}>
-      <div className="top-bar" style={styles.topBar}>
-        <div className="brand" style={styles.brand}>
+    <div style={styles.page}>
+      <div style={styles.topBar}>
+        <div style={styles.brand}>
           <img src="/Altura.png" alt="Altura IT Solutions" style={styles.logo} />
-          <div>
-            <h1 className="brand-title" style={styles.brandTitle}>{APP_NAME}</h1>
-            <p className="brand-subtitle" style={styles.brandSubtitle}>{APP_SUBTITLE}</p>
-          </div>
+          <div><h1 style={styles.brandTitle}>{APP_NAME}</h1><p style={styles.brandSubtitle}>{APP_SUBTITLE}</p></div>
         </div>
-
-        <div className="nav" style={styles.nav}>
+        <div style={styles.nav}>
           <button style={{ ...styles.navButton, ...(page === "dashboard" ? styles.navButtonActive : {}) }} onClick={() => setPage("dashboard")}>{t.dashboard}</button>
           <button style={{ ...styles.navButton, ...(page === "reports" ? styles.navButtonActive : {}) }} onClick={() => setPage("reports")}>{t.reports}</button>
           <button style={{ ...styles.navButton, ...(page === "settings" ? styles.navButtonActive : {}) }} onClick={() => setPage("settings")}>{t.settings}</button>
           <button style={{ ...styles.navButton, ...(page === "howto" ? styles.navButtonActive : {}) }} onClick={() => setPage("howto")}>{t.howTo}</button>
           <select style={styles.smallSelect} value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option style={{ backgroundColor: "#0b0d0f", color: "#ffffff" }} value="es">Español</option>
-            <option style={{ backgroundColor: "#0b0d0f", color: "#ffffff" }} value="en">English</option>
-            <option style={{ backgroundColor: "#0b0d0f", color: "#ffffff" }} value="fr">Français</option>
+            <option value="es">Español</option><option value="en">English</option><option value="fr">Français</option>
           </select>
         </div>
       </div>
 
-      <main className="app-shell" style={styles.appShell}>
+      <main style={styles.appShell}>
         {page === "dashboard" && (
-          <div className="dashboard-layout">
-            <div className="dashboard-top-widgets">
-              {renderMonthWidget()}
-              {renderSummaryWidget()}
-              {renderUpcomingWidget()}
-            </div>
-
-            <section className="main-content full-width">
-              <div className="card" style={styles.card}>
-                <h2>{t.addExpense}</h2>
-                <form onSubmit={addExpense} className="form-grid">
-                  <div><label>{t.name}</label><input style={styles.input} value={newExpense.name} onChange={(e) => setNewExpense({ ...newExpense, name: e.target.value })} /></div>
-                  <div><label>{t.totalPlanned}</label><input style={styles.input} type="number" value={newExpense.plannedAmount} onChange={(e) => setNewExpense({ ...newExpense, plannedAmount: e.target.value })} /></div>
-                  <div><label>{t.category}</label><select style={styles.input} value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}>{categories.map((category) => <option key={category} value={category}>{category}</option>)}</select></div>
-                  <div><label>{t.expenseType}</label><select style={styles.input} value={newExpense.expenseType} disabled={newExpense.category === INCOME_CATEGORY} onChange={(e) => setNewExpense({ ...newExpense, expenseType: e.target.value })}><option value="recurrent">{t.recurrent}</option><option value="sporadic">{t.sporadic}</option></select></div>
-                  <div><label>{t.frequency}</label><select style={styles.input} value={newExpense.frequency} onChange={(e) => setNewExpense({ ...newExpense, frequency: e.target.value })}><option value="monthly">{t.monthly}</option><option value="weekly">{t.weekly}</option><option value="biweekly">{t.biweekly}</option><option value="once">{t.once}</option></select></div>
-                  <div><label>{t.paymentDate}</label><input style={styles.input} type="date" value={newExpense.paymentDay} onChange={(e) => setNewExpense({ ...newExpense, paymentDay: e.target.value })} /></div>
-                  <div><label>{t.account}</label><select style={styles.input} value={newExpense.account} onChange={(e) => setNewExpense({ ...newExpense, account: e.target.value })}>{accounts.map((account) => <option key={account} value={account}>{account}</option>)}</select></div>
-                  <div style={{ display: "flex", alignItems: "end" }}><button type="submit" style={styles.button}>{t.addExpense}</button></div>
-                </form>
-              </div>
-
-              {renderExpenseTable()}
-            </section>
-          </div>
-        )}
-
-        {page === "reports" && (
           <>
-            <div className="card" style={styles.card}>
-              <h2>{t.month}</h2>
-              <input style={styles.input} type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
-            </div>
-            <div className="report-grid">
-              <div className="report-card card" style={styles.card}>
-                <h2>{t.byCategory}</h2>
-                {renderReportTable(categoryReportData, t.category)}
-                <div className="mobile-report-list">{categoryReportData.map((item) => <div key={item.name} className="mobile-report-item"><span className="mobile-report-name">{item.name}</span><span className="mobile-report-value">${item.amount.toFixed(2)}</span></div>)}</div>
+            <div style={styles.dashboardTopWidgets}>
+              {/* Widget Mes */}
+              <div style={styles.card}>
+                <h2>{t.month}</h2>
+                <input style={styles.input} type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
+                  <button onClick={() => createNewMonth("all")} style={styles.button}>{t.createAll}</button>
+                  <button onClick={() => createNewMonth("recurrent")} style={styles.button}>{t.createRecurring}</button>
+                  <button onClick={generateMonthlyPdf} style={styles.buttonPrimary}>{t.exportPdf}</button>
+                  <button onClick={exportData} style={styles.button}>📦 {t.exportData}</button>
+                  <label style={{ ...styles.button, textAlign: "center", cursor: "pointer" }}>
+                    📂 {t.importData}
+                    <input type="file" accept=".json" onChange={importData} style={{ display: "none" }} />
+                  </label>
+                </div>
               </div>
-              <div className="report-card card" style={styles.card}>
-                <h2>{t.byAccount}</h2>
-                {renderReportTable(accountReportData, t.account)}
-                <div className="mobile-report-list">{accountReportData.map((item) => <div key={item.name} className="mobile-report-item"><span className="mobile-report-name">{item.name}</span><span className="mobile-report-value">${item.amount.toFixed(2)}</span></div>)}</div>
+
+              {/* Widget Resumen */}
+              <div style={styles.card}>
+                <h2>{t.monthlySummary}</h2>
+                <label>{t.monthlyIncome}</label>
+                <input style={styles.input} type="number" value={income} onChange={(e) => updateIncome(e.target.value)} />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "12px" }}>
+                  <div><label>{t.incomeFrequency}</label><select style={styles.input} value={incomeFrequency} onChange={(e) => updateIncomeFrequency(e.target.value)}><option value="monthly">{t.monthly}</option><option value="biweekly">{t.biweekly}</option><option value="weekly">{t.weekly}</option></select></div>
+                  <div><label>{t.incomeDate}</label><input style={styles.input} type="date" value={incomeDate} onChange={(e) => updateIncomeDate(e.target.value)} /></div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}><span>{t.totalPlanned}</span><strong>${totalPlanned.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}><span>{t.totalReal}</span><strong>${totalReal.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}><span>{t.randomIncome}</span><strong>+${randomIncomeTotal.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0 0", fontSize: "18px", fontWeight: "bold", color: "#e10600" }}><span>{t.available}</span><strong>${available.toFixed(2)}</strong></div>
+              </div>
+
+              {/* Widget Próximos Pagos */}
+              <div style={styles.card}>
+                <h2>{t.todayAndUpcoming}</h2>
+                <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginBottom: "15px" }}><span>{t.currentDate}</span><strong style={{ display: "block", marginTop: "5px" }}>{getTodayLabel()}</strong></div>
+                <h3>{t.upcomingPayments}</h3>
+                {upcomingPayments.length === 0 ? <p>{t.noUpcomingPayments}</p> : upcomingPayments.map((movement, index) => (
+                  <div key={index} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                    <div><strong>{movement.type === "income" || movement.type === "salary" ? "+ " : "- "}{movement.name}</strong><p style={{ margin: "2px 0 0", fontSize: "11px", color: "#b8b8b8" }}>{formatDisplayDate(movement.date.toISOString().slice(0, 10))} · {movement.daysLeft === 0 ? t.today : `${t.inDays} ${movement.daysLeft} ${t.days}`}</p></div>
+                    <strong>{movement.type === "income" || movement.type === "salary" ? "+" : "-"}${Number(movement.amount || 0).toFixed(2)}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Formulario Agregar Gasto */}
+            <div style={styles.card}>
+              <h2>{t.addExpense}</h2>
+              <form onSubmit={addExpense} style={styles.formGrid}>
+                <div><label>{t.name}</label><input style={styles.input} value={newExpense.name} onChange={(e) => setNewExpense({ ...newExpense, name: e.target.value })} /></div>
+                <div><label>{t.totalPlanned}</label><input style={styles.input} type="number" value={newExpense.plannedAmount} onChange={(e) => setNewExpense({ ...newExpense, plannedAmount: e.target.value })} /></div>
+                <div><label>{t.category}</label><select style={styles.input} value={newExpense.category} onChange={(e) => setNewExpense({ ...newExpense, category: e.target.value })}>{categories.map((cat) => <option key={cat}>{cat}</option>)}</select></div>
+                <div><label>{t.expenseType}</label><select style={styles.input} value={newExpense.expenseType} disabled={newExpense.category === INCOME_CATEGORY} onChange={(e) => setNewExpense({ ...newExpense, expenseType: e.target.value })}><option value="recurrent">{t.recurrent}</option><option value="sporadic">{t.sporadic}</option></select></div>
+                <div><label>{t.frequency}</label><select style={styles.input} value={newExpense.frequency} onChange={(e) => setNewExpense({ ...newExpense, frequency: e.target.value })}><option value="monthly">{t.monthly}</option><option value="weekly">{t.weekly}</option><option value="biweekly">{t.biweekly}</option><option value="once">{t.once}</option></select></div>
+                <div><label>{t.paymentDate}</label><input style={styles.input} type="date" value={newExpense.paymentDay} onChange={(e) => setNewExpense({ ...newExpense, paymentDay: e.target.value })} /></div>
+                <div><label>{t.account}</label><select style={styles.input} value={newExpense.account} onChange={(e) => setNewExpense({ ...newExpense, account: e.target.value })}>{accounts.map((acc) => <option key={acc}>{acc}</option>)}</select></div>
+                <div style={{ display: "flex", alignItems: "end" }}><button type="submit" style={styles.button}>{t.addExpense}</button></div>
+              </form>
+            </div>
+
+            {/* Tabla de Gastos */}
+            <div style={styles.card}>
+              <h2>{t.expensesMonth}</h2>
+              <div style={styles.tableWrapper}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>{t.name}</th><th style={styles.th}>{t.category}</th><th style={styles.th}>{t.type}</th><th style={styles.th}>{t.frequency}</th>
+                      <th style={{ ...styles.th, cursor: "pointer" }} onClick={toggleDateSort} title={getDateSortTitle()}>{t.paymentDate} <span style={{ marginLeft: "5px" }}>{getDateSortIcon()}</span></th>
+                      <th style={styles.th}>{t.account}</th><th style={styles.th}>{t.planned}</th><th style={styles.th}>{t.real}</th><th style={styles.th}>{t.payments}</th><th style={styles.th}>{t.action}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedExpenses.map((expense) => {
+                      const index = expense.originalIndex;
+                      const isEditing = editingRowIndex === index;
+                      const activeExpense = isEditing ? editingExpense : expense;
+                      const effectiveReal = getEffectiveReal(activeExpense);
+                      const rowIsIncoming = isIncomingItem(activeExpense);
+                      return (
+                        <tr key={`${index}-${expense.paymentDay}`} style={getRowStyle(activeExpense)}>
+                          <td style={styles.td}>{isEditing ? <input style={styles.tableInput} value={editingExpense.name} onChange={(e) => setEditingExpense({ ...editingExpense, name: e.target.value })} /> : expense.name}</td>
+                          <td style={styles.td}>{isEditing ? <select style={styles.tableInput} value={editingExpense.category} onChange={(e) => setEditingExpense({ ...editingExpense, category: e.target.value })}>{categories.map(c => <option key={c}>{c}</option>)}</select> : expense.category}</td>
+                          <td style={styles.td}>{rowIsIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.expenseType} onChange={(e) => setEditingExpense({ ...editingExpense, expenseType: e.target.value })}><option value="recurrent">{t.recurrent}</option><option value="sporadic">{t.sporadic}</option></select> : getExpenseTypeLabel(expense.expenseType)}</td>
+                          <td style={styles.td}>{rowIsIncoming ? "" : isEditing ? <select style={styles.tableInput} value={editingExpense.frequency} onChange={(e) => setEditingExpense({ ...editingExpense, frequency: e.target.value })}><option value="monthly">{t.monthly}</option><option value="weekly">{t.weekly}</option><option value="biweekly">{t.biweekly}</option><option value="once">{t.once}</option></select> : getFrequencyLabel(expense.frequency)}</td>
+                          <td style={styles.td}>{isEditing ? <input style={styles.tableInput} type="date" value={editingExpense.paymentDay} onChange={(e) => setEditingExpense({ ...editingExpense, paymentDay: e.target.value })} /> : expense.paymentDay}</td>
+                          <td style={styles.td}>{isEditing ? <select style={styles.tableInput} value={editingExpense.account} onChange={(e) => setEditingExpense({ ...editingExpense, account: e.target.value })}>{accounts.map(a => <option key={a}>{a}</option>)}</select> : expense.account}</td>
+                          <td style={styles.td}>{isEditing ? <input style={styles.tableInput} type="number" value={editingExpense.plannedAmount} onChange={(e) => setEditingExpense({ ...editingExpense, plannedAmount: e.target.value })} /> : `${rowIsIncoming ? "+" : ""}$${Number(expense.plannedAmount).toFixed(2)}`}</td>
+                          <td style={{ ...styles.td, ...getRealCellStyle(activeExpense) }}>{rowIsIncoming ? `+$${Number(expense.plannedAmount).toFixed(2)}` : effectiveReal === null ? t.pending : `$${Number(effectiveReal).toFixed(2)}`}</td>
+                          <td style={styles.td}>{rowIsIncoming ? "—" : <button onClick={() => openPayments(index)}>{t.managePayments}</button>}</td>
+                          <td style={styles.td}>{isEditing ? <><button onClick={() => saveEditRow(index)}>{t.save}</button><button onClick={cancelEditRow} style={{ marginLeft: "5px" }}>{t.cancel}</button></> : <><button onClick={() => startEditRow(index)}>{t.edit}</button><button onClick={() => deleteExpense(index)} style={{ marginLeft: "5px" }}>{t.delete}</button></>}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           </>
         )}
 
+        {page === "reports" && (
+          <>
+            <div style={styles.card}>
+              <h2>{t.reports}</h2>
+              <input style={styles.input} type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginTop: "18px" }}>
+                <div><span>{t.monthlyIncome}</span><strong>${numericIncome.toFixed(2)}</strong></div>
+                <div><span>{t.randomIncome}</span><strong>+${randomIncomeTotal.toFixed(2)}</strong></div>
+                <div><span>{t.totalPlanned}</span><strong>${totalPlanned.toFixed(2)}</strong></div>
+                <div><span>{t.totalReal}</span><strong>${totalReal.toFixed(2)}</strong></div>
+                <div><span>{t.available}</span><strong>${available.toFixed(2)}</strong></div>
+              </div>
+              <p style={{ color: "#b8b8b8", marginTop: "16px" }}>{language === "es" ? "Los reportes muestran únicamente gastos." : language === "en" ? "Reports show expenses only." : "Les rapports affichent seulement les dépenses."}</p>
+            </div>
+            <div style={styles.reportGrid}>
+              <div style={styles.card}><h2>{t.byCategory}</h2>{renderReportTable(categoryReportData, t.category)}</div>
+              <div style={styles.card}><h2>{t.byAccount}</h2>{renderReportTable(accountReportData, t.account)}</div>
+            </div>
+          </>
+        )}
+
         {page === "howto" && (
-          <div className="card" style={styles.card}>
+          <div style={styles.card}>
             <h2>{t.howTo} — {APP_NAME}</h2>
-
+            
+            {/* ESPAÑOL */}
             {language === "es" && (
-              <div style={{ lineHeight: 1.7 }}>
-                <h3>1. Concepto general</h3>
-                <p><strong>My Economy</strong> te ayuda a planificar un mes financiero completo. La app separa lo que esperas pagar de lo que realmente pagas, para que puedas ver tu situación mensual con más claridad.</p>
+              <div style={styles.howToSection}>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📌 1. Concepto General</div>
+                  <p><strong>My Economy</strong> es una aplicación de finanzas personales que te ayuda a planificar tus gastos mensuales y compararlos con lo que realmente pagas. La diferencia clave es que puedes registrar <strong>pagos parciales</strong> para un mismo gasto.</p>
+                </div>
 
-                <h3>2. Ingreso mensual</h3>
-                <p>El ingreso mensual representa tu salario total estimado para el mes seleccionado. Puedes indicar si ese salario se recibe mensual, bisemanal o semanalmente. La app divide visualmente ese salario en entradas verdes dentro de la tabla, pero no lo suma dos veces.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💰 2. Ingreso Mensual (Salario)</div>
+                  <p>Define cuánto dinero esperas recibir durante el mes. Puedes configurar la frecuencia:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Mensual:</strong> Un solo pago en la fecha que indiques</li>
+                    <li><strong>Bisemanal:</strong> Dos pagos al mes (cada 14 días)</li>
+                    <li><strong>Semanal:</strong> Pagos cada 7 días</li>
+                  </ul>
+                  <p>La aplicación calculará automáticamente cuánto recibes en cada fecha y mostrará filas verdes en la tabla.</p>
+                </div>
 
-                <h3>3. Fecha del primer ingreso</h3>
-                <p>Esta fecha le dice a la app cuándo empieza tu ciclo de pagos. Si eliges semanal o bisemanal, la app calcula las siguientes entradas salariales dentro del mes.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>✨ 3. Ingresos Aleatorios (Dinero Extra)</div>
+                  <p>Para registrar ingresos adicionales (bonos, reembolsos, regalos, trabajos extra):</p>
+                  <ol style={styles.howToList}>
+                    <li>Agrega un nuevo movimiento</li>
+                    <li>Selecciona la categoría <strong>"Ingresos"</strong> (está protegida, no se puede eliminar)</li>
+                    <li>Completa el nombre y monto</li>
+                  </ol>
+                  <p>Estos ingresos aparecerán en verde y aumentarán tu <strong>Disponible</strong>.</p>
+                </div>
 
-                <h3>4. Ingresos aleatorios</h3>
-                <p>Para registrar dinero extra, crea un movimiento usando la categoría protegida <strong>Ingresos</strong>. Estos ingresos aparecen en verde, aumentan el disponible y no se calculan como gastos.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📝 4. Agregar Gastos</div>
+                  <p>Completa el formulario:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Nombre:</strong> Describe el gasto (ej: "Supermercado", "Gasolina")</li>
+                    <li><strong>Total previsto:</strong> Lo que esperas gastar</li>
+                    <li><strong>Categoría:</strong> Casa, Comida, Carro, etc. (puedes crear nuevas en Configuración)</li>
+                    <li><strong>Tipo de gasto:</strong> Recurrente (se copia al siguiente mes) o Esporádico</li>
+                    <li><strong>Frecuencia:</strong> Mensual, Semanal, Bisemanal o Una vez</li>
+                    <li><strong>Fecha de pago:</strong> Cuándo vence o planeas pagar</li>
+                    <li><strong>Cuenta:</strong> Débito, Crédito, Efectivo, etc.</li>
+                  </ul>
+                </div>
 
-                <h3>5. Gastos previstos</h3>
-                <p>El valor previsto es lo que esperas pagar antes de realizar el pago. Este valor se usa para calcular el disponible del mes.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💸 5. Pagos Reales (Lo que realmente pagaste)</div>
+                  <p>El valor <strong>Real</strong> se calcula desde el botón <strong>"Admin"</strong> en la tabla. Esto permite registrar pagos parciales:</p>
+                  <ul style={styles.howToList}>
+                    <li>Si pagas $30 de $100 planeados → el real será $30, el disponible ajusta la diferencia</li>
+                    <li>Si pagas $120 de $100 planeados → aparece en rojo (sobrecosto) y la diferencia es negativa</li>
+                    <li>Puedes agregar múltiples pagos para un mismo gasto (ej: varias compras de supermercado en el mes)</li>
+                  </ul>
+                </div>
 
-                <h3>6. Pagos reales</h3>
-                <p>El valor real se calcula desde <strong>Admin</strong>, donde puedes registrar uno o varios pagos. Esto es útil para gastos que se pagan por partes, como gasolina, mercado o compras variables.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>🎨 6. Colores y Significados</div>
+                  <ul style={styles.howToList}>
+                    <li><span style={{ color: "#4caf50" }}>🟢 Verde:</span> Filas de ingresos (salario o ingresos aleatorios)</li>
+                    <li><span style={{ color: "#4caf50" }}>🟢 Celda Real verde:</span> Pagaste <strong>menos</strong> de lo planeado → Ahorraste</li>
+                    <li><span style={{ color: "#ffc107" }}>🟡 Celda Real amarilla:</span> Pagaste <strong>exactamente</strong> lo planeado</li>
+                    <li><span style={{ color: "#f44336" }}>🔴 Celda Real roja:</span> Pagaste <strong>más</strong> de lo planeado → Sobrecosto</li>
+                    <li><span style={{ color: "#9e9e9e" }}>⚪ Celda Real gris:</span> Aún no has registrado pagos → Pendiente</li>
+                  </ul>
+                </div>
 
-                <h3>7. Disponible</h3>
-                <p>El disponible se calcula así: <strong>Ingreso mensual + ingresos aleatorios - gastos previstos</strong>. Los pagos reales no cambian directamente el disponible; sirven para comparar lo planeado contra lo pagado.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📊 7. Disponible</div>
+                  <p>El <strong>Disponible</strong> se calcula como:</p>
+                  <p style={{ background: "rgba(225,6,0,0.15)", padding: "10px", borderRadius: "6px", textAlign: "center", fontWeight: "bold" }}>
+                    Ingreso Mensual + Ingresos Aleatorios - Gastos Previstos
+                  </p>
+                  <p>⚠️ <strong>Nota importante:</strong> Los pagos reales NO modifican el disponible directamente. El disponible te muestra tu planificación. La diferencia entre previsto y real aparece en la ventana de Admin de cada gasto.</p>
+                </div>
 
-                <h3>8. Colores</h3>
-                <p>Las líneas verdes representan entradas de dinero. En la columna Real, verde significa que pagaste menos de lo previsto, amarillo que pagaste igual, y rojo que pagaste más.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>🔍 8. Ordenar por Fecha</div>
+                  <p>Haz clic en el encabezado <strong>"Fecha de pago"</strong>:</p>
+                  <ul style={styles.howToList}>
+                    <li>1er clic → Orden ascendente (más antigua a más reciente)</li>
+                    <li>2do clic → Orden descendente (más reciente a más antigua)</li>
+                    <li>3er clic → Vuelve al orden original de ingreso</li>
+                  </ul>
+                </div>
 
-                <h3>9. Orden por fecha</h3>
-                <p>Puedes hacer clic en la columna <strong>Fecha de pago</strong>. Un clic ordena de menor a mayor fecha, otro clic de mayor a menor, y un tercer clic vuelve al orden original.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📅 9. Crear Nuevos Meses</div>
+                  <p>En el widget del mes, tienes dos opciones:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Crear mes copiando TODOS los gastos:</strong> Copia todos los movimientos, incluyendo esporádicos</li>
+                    <li><strong>Crear mes copiando solo RECURRENTES:</strong> Copia solo gastos marcados como "Recurrentes"</li>
+                  </ul>
+                  <p>Las fechas de pago se ajustan automáticamente al nuevo mes (ej: un pago el 31 solo se moverá al 28 si el mes tiene 28 días).</p>
+                </div>
 
-                <h3>10. Crear nuevos meses</h3>
-                <p>Puedes crear un mes copiando todos los movimientos o solo los recurrentes. Las fechas se ajustan automáticamente al nuevo mes.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📄 10. Reportes PDF</div>
+                  <p>Desde el widget del mes, haz clic en <strong>"Generar reporte PDF"</strong> para obtener:</p>
+                  <ul style={styles.howToList}>
+                    <li>Resumen financiero del mes (ingresos, gastos, disponible)</li>
+                    <li>Lista completa de movimientos ordenados por fecha</li>
+                    <li>Indicadores de ingresos (verde) y gastos pendientes (gris)</li>
+                  </ul>
+                </div>
 
-                <h3>11. Reportes PDF</h3>
-                <p>Desde el widget del mes en el Dashboard puedes generar un reporte mensual en PDF con resumen financiero y lista de movimientos.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💾 11. Exportar e Importar Datos (Respaldo)</div>
+                  <p>Para no perder tu información:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>📦 Exportar datos:</strong> Guarda un archivo .json con TODOS tus meses, categorías y cuentas</li>
+                    <li><strong>📂 Importar datos:</strong> Restaura tu información desde un archivo de respaldo</li>
+                  </ul>
+                  <p>Los datos se almacenan en tu navegador (localStorage). Si borras el caché del navegador, perderás la información. ¡Usa la exportación periódicamente!</p>
+                </div>
+
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>⚙️ 12. Configuración</div>
+                  <p>Puedes personalizar:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Categorías:</strong> Agrega o elimina categorías de gastos (excepto "Ingresos" que está protegida)</li>
+                    <li><strong>Cuentas:</strong> Agrega o elimina métodos de pago (tarjetas, cuentas bancarias, efectivo)</li>
+                    <li><strong>Meses creados:</strong> Visualiza y elimina meses completos</li>
+                  </ul>
+                </div>
+
+                <div style={styles.howToNote}>
+                  <strong>💡 Consejo rápido:</strong> Para usar la aplicación, primero configura tu Ingreso Mensual y Fecha del primer ingreso, luego agrega tus gastos previstos. A medida que realices pagos, regístralos en "Admin". El Dashboard te mostrará tu situación financiera en tiempo real.
+                </div>
               </div>
             )}
 
+            {/* ENGLISH */}
             {language === "en" && (
-              <div style={{ lineHeight: 1.7 }}>
-                <h3>1. General concept</h3>
-                <p><strong>My Economy</strong> helps you plan a full financial month. The app separates planned values from real payments so you can understand your monthly situation more clearly.</p>
+              <div style={styles.howToSection}>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📌 1. General Concept</div>
+                  <p><strong>My Economy</strong> is a personal finance app that helps you plan monthly expenses and compare them with what you actually pay. The key feature is recording <strong>partial payments</strong> for a single expense.</p>
+                </div>
 
-                <h3>2. Monthly income</h3>
-                <p>Monthly income represents your estimated salary for the selected month. You can define whether it is received monthly, biweekly, or weekly. The app visually splits that salary into green entries in the table without counting it twice.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💰 2. Monthly Income (Salary)</div>
+                  <p>Define how much money you expect to receive during the month. You can configure the frequency:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Monthly:</strong> Single payment on the date you specify</li>
+                    <li><strong>Biweekly:</strong> Two payments per month (every 14 days)</li>
+                    <li><strong>Weekly:</strong> Payments every 7 days</li>
+                  </ul>
+                  <p>The app will automatically calculate how much you receive on each date and show green rows in the table.</p>
+                </div>
 
-                <h3>3. First income date</h3>
-                <p>This date tells the app when your payment cycle starts. If you select weekly or biweekly, the app calculates the following salary entries inside the selected month.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>✨ 3. Random Income (Extra Money)</div>
+                  <p>To record additional income (bonuses, reimbursements, gifts, side jobs):</p>
+                  <ol style={styles.howToList}>
+                    <li>Add a new movement</li>
+                    <li>Select the <strong>"Ingresos"</strong> category (protected, cannot be deleted)</li>
+                    <li>Complete name and amount</li>
+                  </ol>
+                  <p>These incomes appear in green and increase your <strong>Available</strong> balance.</p>
+                </div>
 
-                <h3>4. Random income</h3>
-                <p>To register extra income, create a movement using the protected <strong>Ingresos</strong> category. These entries appear in green, increase available balance, and are not counted as expenses.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📝 4. Adding Expenses</div>
+                  <p>Complete the form:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Name:</strong> Describe the expense (e.g., "Groceries", "Gas")</li>
+                    <li><strong>Total planned:</strong> What you expect to spend</li>
+                    <li><strong>Category:</strong> Home, Food, Car, etc. (you can create new ones in Settings)</li>
+                    <li><strong>Expense type:</strong> Recurring (copies to next month) or Sporadic</li>
+                    <li><strong>Frequency:</strong> Monthly, Weekly, Biweekly, or Once</li>
+                    <li><strong>Payment date:</strong> When it's due or you plan to pay</li>
+                    <li><strong>Account:</strong> Debit, Credit, Cash, etc.</li>
+                  </ul>
+                </div>
 
-                <h3>5. Planned expenses</h3>
-                <p>The planned value is what you expect to pay before making the payment. This value is used to calculate the available monthly balance.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💸 5. Real Payments (What you actually paid)</div>
+                  <p>The <strong>Real</strong> value is calculated from the <strong>"Admin"</strong> button in the table. This allows recording partial payments:</p>
+                  <ul style={styles.howToList}>
+                    <li>If you pay $30 out of $100 planned → real will be $30, available reflects the difference</li>
+                    <li>If you pay $120 out of $100 planned → appears in red (over budget) with negative difference</li>
+                    <li>You can add multiple payments for a single expense (e.g., multiple grocery purchases during the month)</li>
+                  </ul>
+                </div>
 
-                <h3>6. Real payments</h3>
-                <p>The real value is calculated from <strong>Admin</strong>, where you can register one or multiple payments. This is useful for expenses paid in parts, such as gas, groceries, or variable purchases.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>🎨 6. Colors and Meanings</div>
+                  <ul style={styles.howToList}>
+                    <li><span style={{ color: "#4caf50" }}>🟢 Green:</span> Income rows (salary or random income)</li>
+                    <li><span style={{ color: "#4caf50" }}>🟢 Green Real cell:</span> You paid <strong>less</strong> than planned → You saved</li>
+                    <li><span style={{ color: "#ffc107" }}>🟡 Yellow Real cell:</span> You paid <strong>exactly</strong> what you planned</li>
+                    <li><span style={{ color: "#f44336" }}>🔴 Red Real cell:</span> You paid <strong>more</strong> than planned → Over budget</li>
+                    <li><span style={{ color: "#9e9e9e" }}>⚪ Gray Real cell:</span> No payments recorded yet → Pending</li>
+                  </ul>
+                </div>
 
-                <h3>7. Available balance</h3>
-                <p>Available balance is calculated as: <strong>Monthly income + random income - planned expenses</strong>. Real payments do not directly change available balance; they are used to compare planned vs. paid.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📊 7. Available Balance</div>
+                  <p><strong>Available</strong> is calculated as:</p>
+                  <p style={{ background: "rgba(225,6,0,0.15)", padding: "10px", borderRadius: "6px", textAlign: "center", fontWeight: "bold" }}>
+                    Monthly Income + Random Income - Planned Expenses
+                  </p>
+                  <p>⚠️ <strong>Important:</strong> Real payments do NOT directly change Available. Available shows your planning. The difference between planned and real appears in each expense's Admin window.</p>
+                </div>
 
-                <h3>8. Colors</h3>
-                <p>Green rows represent income. In the Real column, green means you paid less than planned, yellow means equal, and red means over budget.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>🔍 8. Sort by Date</div>
+                  <p>Click the <strong>"Payment date"</strong> column header:</p>
+                  <ul style={styles.howToList}>
+                    <li>1st click → Ascending order (oldest to newest)</li>
+                    <li>2nd click → Descending order (newest to oldest)</li>
+                    <li>3rd click → Returns to original entry order</li>
+                  </ul>
+                </div>
 
-                <h3>9. Date sorting</h3>
-                <p>You can click the <strong>Payment date</strong> column. First click sorts ascending, second click descending, and third click returns to the original order.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📅 9. Creating New Months</div>
+                  <p>In the month widget, you have two options:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Create month copying ALL expenses:</strong> Copies all movements, including sporadic ones</li>
+                    <li><strong>Create month copying only RECURRING:</strong> Copies only expenses marked as "Recurring"</li>
+                  </ul>
+                  <p>Payment dates adjust automatically to the new month (e.g., a payment on the 31st will move to the 28th if the month has only 28 days).</p>
+                </div>
 
-                <h3>10. Creating new months</h3>
-                <p>You can create a month by copying all movements or recurring movements only. Payment dates are automatically adjusted to the new month.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📄 10. PDF Reports</div>
+                  <p>From the month widget, click <strong>"Generate PDF report"</strong> to get:</p>
+                  <ul style={styles.howToList}>
+                    <li>Monthly financial summary (income, expenses, available)</li>
+                    <li>Complete list of movements sorted by date</li>
+                    <li>Income indicators (green) and pending expenses (gray)</li>
+                  </ul>
+                </div>
 
-                <h3>11. PDF reports</h3>
-                <p>From the month widget in the Dashboard, you can generate a monthly PDF statement with financial summary and movement list.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💾 11. Export and Import Data (Backup)</div>
+                  <p>To avoid losing your information:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>📦 Export data:</strong> Saves a .json file with ALL your months, categories, and accounts</li>
+                    <li><strong>📂 Import data:</strong> Restores your information from a backup file</li>
+                  </ul>
+                  <p>Data is stored in your browser (localStorage). If you clear your browser cache, you'll lose information. Use export periodically!</p>
+                </div>
+
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>⚙️ 12. Settings</div>
+                  <p>You can customize:</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Categories:</strong> Add or delete expense categories (except "Ingresos" which is protected)</li>
+                    <li><strong>Accounts:</strong> Add or delete payment methods (cards, bank accounts, cash)</li>
+                    <li><strong>Created months:</strong> View and delete entire months</li>
+                  </ul>
+                </div>
+
+                <div style={styles.howToNote}>
+                  <strong>💡 Quick tip:</strong> To use the app, first configure your Monthly Income and First income date, then add your planned expenses. As you make payments, record them in "Admin". The Dashboard will show your financial situation in real time.
+                </div>
               </div>
             )}
 
+            {/* FRANÇAIS */}
             {language === "fr" && (
-              <div style={{ lineHeight: 1.7 }}>
-                <h3>1. Concept général</h3>
-                <p><strong>My Economy</strong> aide à planifier un mois financier complet. L’application sépare les valeurs prévues des paiements réels afin de mieux comprendre la situation mensuelle.</p>
+              <div style={styles.howToSection}>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📌 1. Concept Général</div>
+                  <p><strong>My Economy</strong> est une application de finances personnelles qui vous aide à planifier vos dépenses mensuelles et à les comparer avec ce que vous payez réellement. La fonctionnalité clé est l'enregistrement de <strong>paiements partiels</strong> pour une même dépense.</p>
+                </div>
 
-                <h3>2. Revenu mensuel</h3>
-                <p>Le revenu mensuel représente le salaire estimé pour le mois sélectionné. Il peut être reçu mensuellement, aux deux semaines ou chaque semaine. L’application affiche ces entrées en vert dans le tableau sans les compter deux fois.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💰 2. Revenu Mensuel (Salaire)</div>
+                  <p>Définissez combien d'argent vous prévoyez recevoir pendant le mois. Vous pouvez configurer la fréquence :</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Mensuel :</strong> Un seul paiement à la date indiquée</li>
+                    <li><strong>Aux deux semaines :</strong> Deux paiements par mois (tous les 14 jours)</li>
+                    <li><strong>Hebdomadaire :</strong> Paiements toutes les 7 jours</li>
+                  </ul>
+                  <p>L'application calcule automatiquement combien vous recevez à chaque date et affiche des lignes vertes dans le tableau.</p>
+                </div>
 
-                <h3>3. Date du premier revenu</h3>
-                <p>Cette date indique le début du cycle de paie. Si la fréquence est hebdomadaire ou aux deux semaines, l’application calcule les prochaines entrées salariales du mois.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>✨ 3. Revenus Aléatoires (Argent Supplémentaire)</div>
+                  <p>Pour enregistrer des revenus supplémentaires (bonus, remboursements, cadeaux, travaux secondaires) :</p>
+                  <ol style={styles.howToList}>
+                    <li>Ajoutez un nouveau mouvement</li>
+                    <li>Sélectionnez la catégorie <strong>"Ingresos"</strong> (protégée, ne peut pas être supprimée)</li>
+                    <li>Complétez le nom et le montant</li>
+                  </ol>
+                  <p>Ces revenus apparaissent en vert et augmentent votre solde <strong>Disponible</strong>.</p>
+                </div>
 
-                <h3>4. Revenus aléatoires</h3>
-                <p>Pour ajouter un revenu extra, crée un mouvement avec la catégorie protégée <strong>Ingresos</strong>. Ces entrées apparaissent en vert, augmentent le disponible et ne sont pas calculées comme dépenses.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📝 4. Ajouter des Dépenses</div>
+                  <p>Complétez le formulaire :</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Nom :</strong> Décrivez la dépense (ex : "Supermarket", "Essence")</li>
+                    <li><strong>Total prévu :</strong> Ce que vous prévoyez dépenser</li>
+                    <li><strong>Catégorie :</strong> Maison, Nourriture, Voiture, etc. (vous pouvez en créer dans Configuration)</li>
+                    <li><strong>Type de dépense :</strong> Récurrent (copié au mois suivant) ou Ponctuel</li>
+                    <li><strong>Fréquence :</strong> Mensuelle, Hebdomadaire, Aux deux semaines ou Une fois</li>
+                    <li><strong>Date de paiement :</strong> Quand elle est due ou vous prévoyez de payer</li>
+                    <li><strong>Compte :</strong> Débit, Crédit, Espèces, etc.</li>
+                  </ul>
+                </div>
 
-                <h3>5. Dépenses prévues</h3>
-                <p>La valeur prévue est le montant attendu avant le paiement. Cette valeur est utilisée pour calculer le disponible mensuel.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💸 5. Paiements Réels (Ce que vous avez réellement payé)</div>
+                  <p>La valeur <strong>Réel</strong> est calculée à partir du bouton <strong>"Admin"</strong> dans le tableau. Cela permet d'enregistrer des paiements partiels :</p>
+                  <ul style={styles.howToList}>
+                    <li>Si vous payez 30€ sur 100€ prévus → le réel sera 30€, le disponible reflète la différence</li>
+                    <li>Si vous payez 120€ sur 100€ prévus → apparaît en rouge (dépassement) avec différence négative</li>
+                    <li>Vous pouvez ajouter plusieurs paiements pour une même dépense (ex : plusieurs achats au supermarché pendant le mois)</li>
+                  </ul>
+                </div>
 
-                <h3>6. Paiements réels</h3>
-                <p>La valeur réelle est calculée depuis <strong>Admin</strong>, où il est possible d’ajouter un ou plusieurs paiements. C’est utile pour les dépenses payées en plusieurs parties.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>🎨 6. Couleurs et Significations</div>
+                  <ul style={styles.howToList}>
+                    <li><span style={{ color: "#4caf50" }}>🟢 Vert :</span> Lignes de revenus (salaire ou revenus aléatoires)</li>
+                    <li><span style={{ color: "#4caf50" }}>🟢 Cellule Réel verte :</span> Vous avez payé <strong>moins</strong> que prévu → Vous avez économisé</li>
+                    <li><span style={{ color: "#ffc107" }}>🟡 Cellule Réel jaune :</span> Vous avez payé <strong>exactement</strong> ce que vous aviez prévu</li>
+                    <li><span style={{ color: "#f44336" }}>🔴 Cellule Réel rouge :</span> Vous avez payé <strong>plus</strong> que prévu → Dépassement</li>
+                    <li><span style={{ color: "#9e9e9e" }}>⚪ Cellule Réel grise :</span> Aucun paiement enregistré encore → En attente</li>
+                  </ul>
+                </div>
 
-                <h3>7. Disponible</h3>
-                <p>Le disponible est calculé ainsi : <strong>revenu mensuel + revenus aléatoires - dépenses prévues</strong>. Les paiements réels servent à comparer le prévu et le payé.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📊 7. Disponible</div>
+                  <p>Le <strong>Disponible</strong> est calculé comme suit :</p>
+                  <p style={{ background: "rgba(225,6,0,0.15)", padding: "10px", borderRadius: "6px", textAlign: "center", fontWeight: "bold" }}>
+                    Revenu Mensuel + Revenus Aléatoires - Dépenses Prévues
+                  </p>
+                  <p>⚠️ <strong>Important :</strong> Les paiements réels ne modifient PAS directement le Disponible. Le disponible montre votre planification. La différence entre prévu et réel apparaît dans la fenêtre Admin de chaque dépense.</p>
+                </div>
 
-                <h3>8. Couleurs</h3>
-                <p>Les lignes vertes représentent les entrées d’argent. Dans la colonne Réel, vert signifie payé moins que prévu, jaune signifie égal, et rouge signifie dépassement.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>🔍 8. Trier par Date</div>
+                  <p>Cliquez sur l'en-tête de colonne <strong>"Date de paiement"</strong> :</p>
+                  <ul style={styles.howToList}>
+                    <li>1er clic → Ordre croissant (du plus ancien au plus récent)</li>
+                    <li>2ème clic → Ordre décroissant (du plus récent au plus ancien)</li>
+                    <li>3ème clic → Retour à l'ordre original de saisie</li>
+                  </ul>
+                </div>
 
-                <h3>9. Tri par date</h3>
-                <p>Il est possible de cliquer sur la colonne <strong>Date de paiement</strong>. Le premier clic trie en ordre croissant, le deuxième en ordre décroissant, et le troisième revient à l’ordre original.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📅 9. Créer de Nouveaux Mois</div>
+                  <p>Dans le widget du mois, vous avez deux options :</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Créer le mois en copiant TOUTES les dépenses :</strong> Copie tous les mouvements, y compris les ponctuels</li>
+                    <li><strong>Créer le mois avec seulement les RÉCURRENTS :</strong> Copie seulement les dépenses marquées comme "Récurrentes"</li>
+                  </ul>
+                  <p>Les dates de paiement s'ajustent automatiquement au nouveau mois (ex : un paiement le 31 sera déplacé au 28 si le mois a seulement 28 jours).</p>
+                </div>
 
-                <h3>10. Création de nouveaux mois</h3>
-                <p>Tu peux créer un mois en copiant tous les mouvements ou seulement les récurrents. Les dates sont automatiquement ajustées au nouveau mois.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>📄 10. Rapports PDF</div>
+                  <p>Dans le widget du mois, cliquez sur <strong>"Générer rapport PDF"</strong> pour obtenir :</p>
+                  <ul style={styles.howToList}>
+                    <li>Résumé financier du mois (revenus, dépenses, disponible)</li>
+                    <li>Liste complète des mouvements triés par date</li>
+                    <li>Indicateurs de revenus (vert) et dépenses en attente (gris)</li>
+                  </ul>
+                </div>
 
-                <h3>11. Rapports PDF</h3>
-                <p>Depuis le widget du mois dans le Dashboard, tu peux générer un rapport mensuel PDF avec résumé financier et liste des mouvements.</p>
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>💾 11. Exporter et Importer des Données (Sauvegarde)</div>
+                  <p>Pour ne pas perdre vos informations :</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>📦 Exporter les données :</strong> Sauvegarde un fichier .json avec TOUS vos mois, catégories et comptes</li>
+                    <li><strong>📂 Importer les données :</strong> Restaure vos informations à partir d'un fichier de sauvegarde</li>
+                  </ul>
+                  <p>Les données sont stockées dans votre navigateur (localStorage). Si vous effacez le cache du navigateur, vous perdrez les informations. Utilisez l'exportation périodiquement !</p>
+                </div>
+
+                <div style={styles.howToCard}>
+                  <div style={styles.howToTitle}>⚙️ 12. Configuration</div>
+                  <p>Vous pouvez personnaliser :</p>
+                  <ul style={styles.howToList}>
+                    <li><strong>Catégories :</strong> Ajoutez ou supprimez des catégories de dépenses (sauf "Ingresos" qui est protégée)</li>
+                    <li><strong>Comptes :</strong> Ajoutez ou supprimez des méthodes de paiement (cartes, comptes bancaires, espèces)</li>
+                    <li><strong>Mois créés :</strong> Visualisez et supprimez des mois entiers</li>
+                  </ul>
+                </div>
+
+                <div style={styles.howToNote}>
+                  <strong>💡 Conseil rapide :</strong> Pour utiliser l'application, configurez d'abord votre Revenu Mensuel et votre Date du premier revenu, puis ajoutez vos dépenses prévues. Au fur et à mesure que vous effectuez des paiements, enregistrez-les dans "Admin". Le Tableau de bord vous montrera votre situation financière en temps réel.
+                </div>
               </div>
             )}
           </div>
@@ -1601,70 +1792,58 @@ function App() {
 
         {page === "settings" && (
           <>
-            <div className="card" style={styles.card}>
+            <div style={styles.card}>
               <h2>{t.categoriesConfig}</h2>
-              <form onSubmit={addCategory} style={{ display: "flex", gap: "10px" }}>
+              <form onSubmit={addCategory} style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
                 <input style={styles.input} placeholder={t.newCategory} value={newCategory} onChange={(e) => setNewCategory(e.target.value)} />
                 <button style={styles.button} type="submit">{t.addCategory}</button>
               </form>
-              <div style={{ marginTop: "20px" }}>{categories.map((category) => <div key={category} style={styles.listItem}><span>{category}</span><button onClick={() => deleteCategory(category)} disabled={category === INCOME_CATEGORY}>{t.delete}</button></div>)}</div>
+              {categories.map((cat) => <div key={cat} style={styles.listItem}><span>{cat}</span><button onClick={() => deleteCategory(cat)} disabled={cat === INCOME_CATEGORY}>{t.delete}</button></div>)}
             </div>
-
-            <div className="card" style={styles.card}>
+            <div style={styles.card}>
               <h2>{t.accountsConfig}</h2>
-              <form onSubmit={addAccount} style={{ display: "flex", gap: "10px" }}>
+              <form onSubmit={addAccount} style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
                 <input style={styles.input} placeholder={t.newAccount} value={newAccount} onChange={(e) => setNewAccount(e.target.value)} />
                 <button style={styles.button} type="submit">{t.addAccount}</button>
               </form>
-              <div style={{ marginTop: "20px" }}>{accounts.map((account) => <div key={account} style={styles.listItem}><span>{account}</span><button onClick={() => deleteAccount(account)}>{t.delete}</button></div>)}</div>
+              {accounts.map((acc) => <div key={acc} style={styles.listItem}><span>{acc}</span><button onClick={() => deleteAccount(acc)}>{t.delete}</button></div>)}
             </div>
-
-            <div className="card" style={styles.card}>
+            <div style={styles.card}>
               <h2>{t.createdMonths}</h2>
-              {Object.keys(monthlyData).length === 0 && <p>{t.noMonths}</p>}
-              {Object.keys(monthlyData).sort().map((month) => <div key={month} style={styles.listItem}><span>{month}</span><button onClick={() => deleteMonth(month)}>{t.delete}</button></div>)}
+              {Object.keys(monthlyData).length === 0 ? <p>{t.noMonths}</p> : Object.keys(monthlyData).sort().map((month) => (
+                <div key={month} style={styles.listItem}><span>{month}</span><button onClick={() => deleteMonth(month)}>{t.delete}</button></div>
+              ))}
             </div>
           </>
         )}
 
-        <footer className="footer" style={styles.footer}>
-          <div style={styles.footerBrand}>
-            <img src="/Altura.png" alt="Altura IT Solutions" style={styles.footerLogo} />
-            <div><strong>{APP_NAME}</strong> <span style={{ marginLeft: "10px" }}>{APP_VERSION}</span><p style={{ margin: "6px 0 0" }}>{APP_SUBTITLE}</p></div>
-          </div>
+        <footer style={styles.footer}>
+          <div style={styles.footerBrand}><img src="/Altura.png" alt="Altura IT Solutions" style={styles.footerLogo} /><div><strong>{APP_NAME}</strong> <span>{APP_VERSION}</span><p>{APP_SUBTITLE}</p></div></div>
           <div style={{ textAlign: "center" }}>Developed by <span style={styles.redText}>{APP_DEVELOPER}</span><br />© 2026 Diego Isaza</div>
           <div>{APP_NAME} is a personal finance management application designed to help you plan, track and control your finances.</div>
         </footer>
       </main>
 
+      {/* Modal de Pagos */}
       {selectedPaymentExpense && (
         <div style={styles.modalOverlay}>
           <div style={styles.modal}>
             <h2>{t.managePaymentsFull}: {selectedPaymentExpense.name}</h2>
-            <p>
-              {t.planned}: ${selectedPaymentExpense.plannedAmount.toFixed(2)} | {t.real}: ${selectedPaymentReal.toFixed(2)} | {t.difference}: {selectedPaymentDifference >= 0 ? "+" : "-"}${Math.abs(selectedPaymentDifference).toFixed(2)} {selectedPaymentDifference >= 0 ? t.savings : t.overCost}
-            </p>
-            <form onSubmit={addPayment} className="form-grid">
+            <p>{t.planned}: ${selectedPaymentExpense.plannedAmount.toFixed(2)} | {t.real}: ${selectedPaymentReal.toFixed(2)} | {t.difference}: {selectedPaymentDifference >= 0 ? "+" : "-"}${Math.abs(selectedPaymentDifference).toFixed(2)} {selectedPaymentDifference >= 0 ? t.savings : t.overCost}</p>
+            <form onSubmit={addPayment} style={styles.formGrid}>
               <div><label>{t.paymentDate}</label><input style={styles.input} type="date" value={newPayment.date} onChange={(e) => setNewPayment({ ...newPayment, date: e.target.value })} /></div>
               <div><label>{t.paymentAmount}</label><input style={styles.input} type="number" value={newPayment.amount} onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })} /></div>
               <div><label>{t.paymentNote}</label><input style={styles.input} value={newPayment.note} onChange={(e) => setNewPayment({ ...newPayment, note: e.target.value })} /></div>
-              <div style={{ display: "flex", alignItems: "end", gap: "10px" }}>
-                <button type="submit" style={styles.button}>{t.addPayment}</button>
-                <button type="button" style={styles.button} onClick={() => setPaymentExpenseIndex(null)}>{t.close}</button>
-              </div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "end" }}><button type="submit" style={styles.button}>{t.addPayment}</button><button type="button" style={styles.button} onClick={() => setPaymentExpenseIndex(null)}>{t.close}</button></div>
             </form>
             <h3>{t.paymentHistory}</h3>
-            <div className="table-wrapper" style={styles.tableWrapper}>
-              <table className="data-table" style={styles.table}>
+            <div style={styles.tableWrapper}>
+              <table style={styles.table}>
                 <thead><tr><th style={styles.th}>{t.paymentDate}</th><th style={styles.th}>{t.paymentAmount}</th><th style={styles.th}>{t.paymentNote}</th><th style={styles.th}>{t.action}</th></tr></thead>
                 <tbody>
-                  {selectedPaymentExpense.payments.length === 0 ? (
-                    <tr><td style={styles.td} colSpan="4">{t.noPayments}</td></tr>
-                  ) : (
-                    selectedPaymentExpense.payments.map((payment, index) => (
-                      <tr key={index}><td style={styles.td}>{payment.date}</td><td style={styles.td}>${Number(payment.amount).toFixed(2)}</td><td style={styles.td}>{payment.note}</td><td style={styles.td}><button onClick={() => deletePayment(paymentExpenseIndex, index)}>{t.delete}</button></td></tr>
-                    ))
-                  )}
+                  {selectedPaymentExpense.payments.length === 0 ? <tr><td style={styles.td} colSpan="4">{t.noPayments}</td></tr> : selectedPaymentExpense.payments.map((payment, idx) => (
+                    <tr key={idx}><td style={styles.td}>{payment.date}</td><td style={styles.td}>${Number(payment.amount).toFixed(2)}</td><td style={styles.td}>{payment.note}</td><td style={styles.td}><button onClick={() => deletePayment(paymentExpenseIndex, idx)}>{t.delete}</button></td></tr>
+                  ))}
                 </tbody>
               </table>
             </div>

@@ -7,11 +7,10 @@ const getCurrentMonth = () => new Date().toISOString().slice(0, 7);
 
 const APP_NAME = "My Economy";
 const APP_SUBTITLE = "Take control of your money.";
-const APP_VERSION = "v1.9.0";
+const APP_VERSION = "v1.10.0";
 const APP_DEVELOPER = "Altura IT Solutions";
 const INCOME_CATEGORY = "Ingresos";
 
-// Fecha ficticia para items sin fecha (internamente para ordenar, nunca se muestra)
 const NO_DATE_SORT_VALUE = "9999-12-31";
 
 const translations = {
@@ -118,6 +117,7 @@ const translations = {
     carriedOverIncome: "Ingreso arrastrado",
     resetSort: "Resetear orden (fecha ascendente)",
     sortByDateDefault: "Orden por fecha ascendente",
+    availableFormula: "Disponible = Ingreso + Ingresos Aleatorios - Gastos Previstos",
   },
   en: {
     dashboard: "Dashboard",
@@ -222,6 +222,7 @@ const translations = {
     carriedOverIncome: "Carried over income",
     resetSort: "Reset sort (date ascending)",
     sortByDateDefault: "Sort by date ascending",
+    availableFormula: "Available = Income + Random Income - Planned Expenses",
   },
   fr: {
     dashboard: "Tableau de bord",
@@ -326,6 +327,7 @@ const translations = {
     carriedOverIncome: "Revenu reporté",
     resetSort: "Réinitialiser (date croissante)",
     sortByDateDefault: "Tri par date croissante",
+    availableFormula: "Disponible = Revenu + Revenus Aléatoires - Dépenses Prévues",
   },
 };
 
@@ -379,7 +381,6 @@ function App() {
     return { key: "paymentDate", direction: "asc" };
   });
 
-  // NUBE: Estado para la nube
   const [cloudFilePath, setCloudFilePath] = useState(() => {
     return localStorage.getItem("cloudFilePath") || null;
   });
@@ -448,7 +449,6 @@ function App() {
 
   useEffect(() => localStorage.setItem("language", language), [language]);
 
-  // Auto-guardado a la nube
   useEffect(() => {
     if (isCloudMode && cloudFileHandle) {
       const saveTimeout = setTimeout(() => {
@@ -480,7 +480,6 @@ function App() {
     return () => document.removeEventListener("keydown", handleEscKey);
   }, [paymentExpenseIndex, showTransferDialog]);
 
-  // NUBE: Funciones
   async function selectCloudFile() {
     try {
       let fileHandle = null;
@@ -1049,13 +1048,27 @@ function App() {
     originalIndex: index,
   }));
 
-  const expenseItems = normalizedExpenses.filter(item => !isIncomeItem(item));
+  const expenseItems = normalizedExpenses.filter((item) => !isIncomeItem(item));
   const randomIncomeItems = normalizedExpenses.filter(isIncomeItem);
 
-  const totalPlanned = expenseItems.reduce((sum, item) => sum + Number(item.plannedAmount), 0);
-  const totalReal = expenseItems.reduce((sum, item) => sum + Number(getEffectiveReal(item) || 0), 0);
-  const randomIncomeTotal = randomIncomeItems.reduce((sum, item) => sum + Number(item.plannedAmount || 0), 0);
+  const totalPlanned = expenseItems.reduce(
+    (sum, item) => sum + Number(item.plannedAmount),
+    0
+  );
+
+  const totalReal = expenseItems.reduce(
+    (sum, item) => sum + Number(getEffectiveReal(item) || 0),
+    0
+  );
+
+  const randomIncomeTotal = randomIncomeItems.reduce(
+    (sum, item) => sum + Number(item.plannedAmount || 0),
+    0
+  );
+
   const numericIncome = Number(income || 0);
+
+  // DISPONIBLE = Ingreso + Ingresos Aleatorios - Gastos Previstos
   const available = numericIncome + randomIncomeTotal - totalPlanned;
 
   function getSalaryOccurrences() {
@@ -1277,7 +1290,9 @@ function App() {
     section("6. Sorting", "Click any column header to sort. Click again to reverse. A third click returns to date ascending (default). Items without date always appear at the end. Your sort preference is saved automatically.");
     section("7. Reports", "Expense summaries by category and account. Income entries excluded.");
     section("8. Transfer Available Balance", "When creating a new month with positive available balance, you can transfer it as extra income or add to new month's available.");
-    section("9. Export/Import Data", "Use JSON backup to save or restore all your data.");
+    section("9. Available Balance Calculation", t.availableFormula + ". Real payments do NOT affect the available balance. They only change the color of the Real cell (green if you paid less, red if you paid more).");
+    section("10. Export/Import Data", "Use JSON backup to save or restore all your data.");
+    section("11. Cloud Mode", "Click the cloud icon ☁️ to connect a JSON file. All changes auto-save to that file. Click again to disconnect.");
     doc.setFontSize(8); doc.setTextColor(120, 120, 120); doc.text(`${APP_DEVELOPER} · ${APP_NAME} ${APP_VERSION}`, 14, 270);
     doc.save("my-economy-user-guide.pdf");
   }
@@ -1390,7 +1405,6 @@ function App() {
           <button style={{ ...styles.navButton, ...(page === "settings" ? styles.navButtonActive : {}) }} onClick={() => setPage("settings")}>{t.settings}</button>
           <button style={{ ...styles.navButton, ...(page === "howto" ? styles.navButtonActive : {}) }} onClick={() => setPage("howto")}>{t.howTo}</button>
           
-          {/* ÍCONO DE NUBE */}
           <button
             style={{
               ...styles.cloudButton,
@@ -1416,7 +1430,6 @@ function App() {
         {page === "dashboard" && (
           <>
             <div style={styles.dashboardTopWidgets}>
-              {/* Widget Mes */}
               <div style={styles.card}>
                 <h2>{t.month}</h2>
                 <input style={styles.input} type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} />
@@ -1432,7 +1445,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Widget Resumen */}
               <div style={styles.card}>
                 <h2>{t.monthlySummary}</h2>
                 <label>{t.monthlyIncome}</label>
@@ -1467,9 +1479,11 @@ function App() {
                   <span>{t.available}</span>
                   <strong style={{ color: getAvailableColor(available).color, fontSize: "20px" }}>${available.toFixed(2)}</strong>
                 </div>
+                <p style={{ fontSize: "11px", color: "#b8b8b8", marginTop: "12px", textAlign: "center" }}>
+                  {t.availableFormula}
+                </p>
               </div>
 
-              {/* Widget Próximos Pagos */}
               <div style={styles.card}>
                 <h2>{t.todayAndUpcoming}</h2>
                 <div style={{ background: "rgba(255,255,255,0.05)", padding: "10px", borderRadius: "8px", marginBottom: "15px" }}>
@@ -1495,7 +1509,6 @@ function App() {
               </div>
             </div>
 
-            {/* FORMULARIO PARA AGREGAR MOVIMIENTO */}
             <div style={styles.card}>
               <h2>{t.addExpense}</h2>
               <form onSubmit={addExpense} style={styles.formGrid}>
@@ -1545,7 +1558,6 @@ function App() {
               </form>
             </div>
 
-            {/* Tabla de Gastos */}
             <div style={styles.card}>
               <div style={styles.sortBar}>
                 <button onClick={resetSort} style={styles.buttonSecondary}>🔄 {t.resetSort}</button>
@@ -1644,57 +1656,179 @@ function App() {
           </>
         )}
 
-        {page === "howto" && (
-          <div style={styles.card}>
-            <h2>{t.howTo} — {APP_NAME}</h2>
-            <div style={styles.howToSection}>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>📌 1. Concepto General</div>
-                <p><strong>My Economy</strong> te ayuda a planificar tus gastos mensuales y compararlos con lo que realmente pagas, permitiendo pagos parciales.</p>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>💰 2. Ingreso Mensual</div>
-                <p>Define tu salario y frecuencia (Mensual, Bisemanal, Semanal). La app calcula automáticamente las fechas de pago.</p>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>✨ 3. Ingresos Aleatorios</div>
-                <p>Usa la categoría <strong>"Ingresos"</strong> para dinero extra. Aparece en verde y aumenta el disponible.</p>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>💸 4. Pagos Reales</div>
-                <p>Usa el botón <strong>"Admin"</strong> para registrar uno o múltiples pagos para un mismo gasto.</p>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>🎨 5. Colores</div>
-                <ul style={styles.howToList}>
-                  <li>🟢 <span style={{ color: "#4caf50" }}>Disponible verde</span> = Saldo positivo</li>
-                  <li>🔴 <span style={{ color: "#f44336" }}>Disponible rojo</span> = Números rojos</li>
-                  <li>🟢 Celda Real verde = Pagaste menos (ahorraste)</li>
-                  <li>🔴 Celda Real roja = Pagaste más (sobrecosto)</li>
-                </ul>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>🔄 6. Transferir Disponible</div>
-                <p>Al crear un nuevo mes con disponible positivo, puedes transferirlo como ingreso extra o agregarlo al disponible del nuevo mes.</p>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>📊 7. Ordenar Columnas</div>
-                <p>Haz clic en cualquier encabezado de columna para ordenar la tabla. Cada columna tiene dos estados: ascendente → descendente → vuelve a fecha ascendente (default). Los elementos sin fecha siempre aparecen al final. Tu preferencia de orden se guarda automáticamente.</p>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>☁️ 8. Modo Nube (Beta)</div>
-                <p>Haz clic en el ícono de nube ☁️ en la esquina superior derecha para conectar un archivo JSON. Una vez conectado, todos los cambios se guardan automáticamente en ese archivo. El ícono se pondrá verde ☁️✅ cuando esté activo. Haz clic nuevamente para desconectar.</p>
-              </div>
-              <div style={styles.howToCard}>
-                <div style={styles.howToTitle}>❌ 9. Cerrar Popups</div>
-                <p>Clic en "Cerrar", clic fuera del popup, o tecla ESC.</p>
-              </div>
-              <div style={styles.howToNote}>
-                <strong>💡 Consejo:</strong> Disponible verde = buen presupuesto. Disponible rojo = estás gastando más de lo que ingresas.
-              </div>
-            </div>
+       {page === "howto" && (
+  <div style={styles.card}>
+    <h2>{t.howTo} — {APP_NAME}</h2>
+    <div style={styles.howToSection}>
+      
+      {/* ESPAÑOL */}
+      {language === "es" && (
+        <>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📌 1. Concepto General</div>
+            <p><strong>My Economy</strong> te ayuda a planificar tus gastos mensuales y compararlos con lo que realmente pagas, permitiendo pagos parciales.</p>
           </div>
-        )}
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>💰 2. Ingreso Mensual</div>
+            <p>Define tu salario y frecuencia (Mensual, Bisemanal, Semanal). La app calcula automáticamente las fechas de pago.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>✨ 3. Ingresos Aleatorios</div>
+            <p>Usa la categoría <strong>"Ingresos"</strong> para dinero extra. Aparece en verde y aumenta el disponible.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>💸 4. Pagos Reales</div>
+            <p>Usa el botón <strong>"Admin"</strong> para registrar uno o múltiples pagos para un mismo gasto. El Total Real es solo informativo y cambia el color de la celda, pero NO afecta el Disponible.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>🎨 5. Colores</div>
+            <ul style={styles.howToList}>
+              <li>🟢 <span style={{ color: "#4caf50" }}>Disponible verde</span> = Saldo positivo</li>
+              <li>🔴 <span style={{ color: "#f44336" }}>Disponible rojo</span> = Números rojos</li>
+              <li>🟢 Celda Real verde = Pagaste menos que lo previsto (ahorraste)</li>
+              <li>🔴 Celda Real roja = Pagaste más que lo previsto (sobrecosto)</li>
+            </ul>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📊 6. Cálculo del Disponible</div>
+            <p><strong>{t.availableFormula}</strong></p>
+            <p>Los pagos reales NO afectan el disponible. Solo cambian el color de la celda (verde si pagaste menos, rojo si pagaste más).</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>🔄 7. Transferir Disponible</div>
+            <p>Al crear un nuevo mes con disponible positivo, puedes transferirlo como ingreso extra o agregarlo al disponible del nuevo mes.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📊 8. Ordenar Columnas</div>
+            <p>Haz clic en cualquier encabezado de columna para ordenar la tabla. Cada columna tiene dos estados: ascendente → descendente → vuelve a fecha ascendente (default). Los elementos sin fecha siempre aparecen al final. Tu preferencia de orden se guarda automáticamente.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>☁️ 9. Modo Nube</div>
+            <p>Haz clic en el ícono de nube ☁️ en la esquina superior derecha para conectar un archivo JSON. Una vez conectado, todos los cambios se guardan automáticamente en ese archivo. El ícono se pondrá verde ☁️✅ cuando esté activo. Haz clic nuevamente para desconectar.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>❌ 10. Cerrar Popups</div>
+            <p>Clic en "Cerrar", clic fuera del popup, o tecla ESC.</p>
+          </div>
+          <div style={styles.howToNote}>
+            <strong>💡 Consejo:</strong> {t.availableFormula}. Los pagos reales solo son informativos y cambian el color de la celda, pero NO afectan tu disponible.
+          </div>
+        </>
+      )}
+
+      {/* ENGLISH */}
+      {language === "en" && (
+        <>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📌 1. General Concept</div>
+            <p><strong>My Economy</strong> helps you plan your monthly expenses and compare them with what you actually pay, allowing partial payments.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>💰 2. Monthly Income</div>
+            <p>Set your salary and frequency (Monthly, Biweekly, Weekly). The app automatically calculates payment dates.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>✨ 3. Random Income</div>
+            <p>Use the <strong>"Ingresos"</strong> category for extra money. It appears in green and increases your available balance.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>💸 4. Real Payments</div>
+            <p>Use the <strong>"Admin"</strong> button to record one or multiple payments for the same expense. The Total Real is informational and changes the cell color, but does NOT affect the Available balance.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>🎨 5. Colors</div>
+            <ul style={styles.howToList}>
+              <li>🟢 <span style={{ color: "#4caf50" }}>Green Available</span> = Positive balance</li>
+              <li>🔴 <span style={{ color: "#f44336" }}>Red Available</span> = Negative balance (overspending)</li>
+              <li>🟢 Green Real cell = You paid less than planned (you saved)</li>
+              <li>🔴 Red Real cell = You paid more than planned (over budget)</li>
+            </ul>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📊 6. Available Balance Calculation</div>
+            <p><strong>{t.availableFormula}</strong></p>
+            <p>Real payments do NOT affect the available balance. They only change the cell color (green if you paid less, red if you paid more).</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>🔄 7. Transfer Available Balance</div>
+            <p>When creating a new month with a positive available balance, you can transfer it as extra income or add it to the new month's available balance.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📊 8. Sort Columns</div>
+            <p>Click any column header to sort the table. Each column has two states: ascending → descending → returns to ascending by date (default). Items without a date always appear at the end. Your sort preference is saved automatically.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>☁️ 9. Cloud Mode</div>
+            <p>Click the cloud icon ☁️ in the top right corner to connect a JSON file. Once connected, all changes are automatically saved to that file. The icon will turn green ☁️✅ when active. Click again to disconnect.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>❌ 10. Close Popups</div>
+            <p>Click "Close", click outside the popup, or press the ESC key.</p>
+          </div>
+          <div style={styles.howToNote}>
+            <strong>💡 Tip:</strong> {t.availableFormula}. Real payments are informational and change the cell color, but do NOT affect your available balance.
+          </div>
+        </>
+      )}
+
+      {/* FRANÇAIS */}
+      {language === "fr" && (
+        <>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📌 1. Concept Général</div>
+            <p><strong>My Economy</strong> vous aide à planifier vos dépenses mensuelles et à les comparer avec ce que vous payez réellement, en permettant des paiements partiels.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>💰 2. Revenu Mensuel</div>
+            <p>Définissez votre salaire et sa fréquence (Mensuel, Bimensuel, Hebdomadaire). L'application calcule automatiquement les dates de paiement.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>✨ 3. Revenus Aléatoires</div>
+            <p>Utilisez la catégorie <strong>"Ingresos"</strong> pour de l'argent supplémentaire. Il apparaît en vert et augmente votre solde disponible.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>💸 4. Paiements Réels</div>
+            <p>Utilisez le bouton <strong>"Admin"</strong> pour enregistrer un ou plusieurs paiements pour une même dépense. Le Total Réel est informatif et change la couleur de la cellule, mais n'affecte PAS le solde disponible.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>🎨 5. Couleurs</div>
+            <ul style={styles.howToList}>
+              <li>🟢 <span style={{ color: "#4caf50" }}>Disponible vert</span> = Solde positif</li>
+              <li>🔴 <span style={{ color: "#f44336" }}>Disponible rouge</span> = Solde négatif</li>
+              <li>🟢 Cellule Réel verte = Vous avez payé moins que prévu (économie)</li>
+              <li>🔴 Cellule Réel rouge = Vous avez payé plus que prévu (dépassement)</li>
+            </ul>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📊 6. Calcul du Disponible</div>
+            <p><strong>{t.availableFormula}</strong></p>
+            <p>Les paiements réels n'affectent PAS le solde disponible. Ils changent uniquement la couleur de la cellule (vert si vous avez payé moins, rouge si vous avez payé plus).</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>🔄 7. Transférer le Disponible</div>
+            <p>Lors de la création d'un nouveau mois avec un solde disponible positif, vous pouvez le transférer comme revenu supplémentaire ou l'ajouter au disponible du nouveau mois.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>📊 8. Trier les Colonnes</div>
+            <p>Cliquez sur n'importe quel en-tête de colonne pour trier le tableau. Chaque colonne a deux états : croissant → décroissant → retour au tri par date (par défaut). Les éléments sans date apparaissent toujours à la fin. Votre préférence de tri est sauvegardée automatiquement.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>☁️ 9. Mode Cloud</div>
+            <p>Cliquez sur l'icône de nuage ☁️ dans le coin supérieur droit pour connecter un fichier JSON. Une fois connecté, tous les changements sont automatiquement sauvegardés dans ce fichier. L'icône deviendra verte ☁️✅ lorsqu'elle est active. Cliquez à nouveau pour déconnecter.</p>
+          </div>
+          <div style={styles.howToCard}>
+            <div style={styles.howToTitle}>❌ 10. Fermer les Popups</div>
+            <p>Cliquez sur "Fermer", cliquez à l'extérieur du popup, ou appuyez sur la touche ESC.</p>
+          </div>
+          <div style={styles.howToNote}>
+            <strong>💡 Conseil :</strong> {t.availableFormula}. Les paiements réels sont informatifs et changent la couleur de la cellule, mais n'affectent PAS votre solde disponible.
+          </div>
+        </>
+      )}
+
+    </div>
+  </div>
+)}
 
         {page === "settings" && (
           <>
@@ -1755,7 +1889,6 @@ function App() {
         </footer>
       </main>
 
-      {/* Modal de Transferencia de Disponible */}
       {showTransferDialog && (
         <div style={styles.modalOverlay} onClick={() => setShowTransferDialog(false)}>
           <div style={styles.modal} ref={modalRef} onClick={e => e.stopPropagation()}>
@@ -1797,7 +1930,6 @@ function App() {
         </div>
       )}
 
-      {/* Modal de Pagos */}
       {selectedPaymentExpense && (
         <div style={styles.modalOverlay} onClick={handleOverlayClick}>
           <div style={styles.modal} ref={modalRef}>
